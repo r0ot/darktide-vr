@@ -6731,8 +6731,12 @@ class OpenXrProbe {
           std::cout << "openxr.session_state="
                     << static_cast<int>(session_state_) << '\n';
           // Once per running session: a headset that slept and woke can
-          // bring the dashboard back, so a resume hides it again.
-          if (session_state_ == XR_SESSION_STATE_FOCUSED &&
+          // bring the dashboard back, so a resume hides it again. On VISIBLE
+          // as well as FOCUSED: SteamVR has reported FOCUSED with the
+          // dashboard up, and has also held a session at VISIBLE until it was
+          // closed (both 8 October), so either can be the last state reached.
+          if ((session_state_ == XR_SESSION_STATE_VISIBLE ||
+               session_state_ == XR_SESSION_STATE_FOCUSED) &&
               hide_dashboard_when_focused_ && !dashboard_hidden_this_session_) {
             dashboard_hidden_this_session_ = true;
             std::string failure;
