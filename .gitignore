@@ -22,6 +22,9 @@ build/
 /--help/
 dist/
 bin/
+# The package's two presence-only play-configuration flags (empty files);
+# the rule above hid them, so a fresh clone could not build the package.
+!tools/release/package-files/bin/
 obj/
 node_modules/
 __pycache__/

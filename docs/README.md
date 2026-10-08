@@ -49,6 +49,7 @@ anything with a date in its name as history unless a current note links to it.
 - Render cost: [Foveated rendering](FOVEATED-RENDERING.md) -- what variable rate
   shading would take here, and why the OpenXR foveation extensions cannot help
   (investigation, not yet validated live)
+- Game folder profiles (2D mods, VR, vanilla, incremental): [game profiles](GAME-PROFILES.md)
 - Deployment and operation: [deployment transactions](DEPLOYMENT-TRANSACTIONS.md),
   [SoloPlay setup](SOLOPLAY-SETUP.md), [Quest passthrough recovery](QUEST-PASSTHROUGH-RECOVERY.md),
   [synthetic frame-generation benchmark](SYNTHETIC-FRAMEGEN-BENCHMARK.md)
