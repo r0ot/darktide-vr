@@ -50,8 +50,9 @@ struct SteamVrSessionResult {
   // A backup was left by a session that never restored, and was restored
   // before anything else happened.
   bool recovered_stale_backup{};
-  SteamVrSessionValues previous;  // the user's values, as read or restored
-  SteamVrSessionValues applied;   // what this call set
+  SteamVrSessionValues previous;  // the values read before a change (apply)
+  SteamVrSessionValues applied;   // what this call set (apply: the request;
+                                  // restore: the user's values put back)
   std::string detail;             // one word on failure, for the log
 };
 

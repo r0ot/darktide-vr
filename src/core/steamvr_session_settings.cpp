@@ -139,7 +139,6 @@ SteamVrSessionResult restore_steamvr_session_settings(
   }
   std::error_code error;
   std::filesystem::remove(backup_path, error);
-  result.previous = *values;
   result.ok = true;
   return result;
 }

@@ -7469,17 +7469,19 @@ void print_steamvr_session_result(
             << (result.recovered_stale_backup ? 1 : 0);
   const auto& previous = result.previous;
   const auto& applied = result.applied;
+  // "from->to" when a value was changed from one read, the value alone when
+  // it was only read (unchanged) or only written (a restore).
   if (previous.refresh_rate_hz || applied.refresh_rate_hz) {
     std::cout << " refresh_rate=";
     if (previous.refresh_rate_hz) std::cout << *previous.refresh_rate_hz;
-    if (applied.refresh_rate_hz) std::cout << "->" << *applied.refresh_rate_hz;
+    if (previous.refresh_rate_hz && applied.refresh_rate_hz) std::cout << "->";
+    if (applied.refresh_rate_hz) std::cout << *applied.refresh_rate_hz;
   }
   if (previous.motion_smoothing || applied.motion_smoothing) {
     std::cout << " motion_smoothing=";
     if (previous.motion_smoothing) std::cout << (*previous.motion_smoothing ? 1 : 0);
-    if (applied.motion_smoothing) {
-      std::cout << "->" << (*applied.motion_smoothing ? 1 : 0);
-    }
+    if (previous.motion_smoothing && applied.motion_smoothing) std::cout << "->";
+    if (applied.motion_smoothing) std::cout << (*applied.motion_smoothing ? 1 : 0);
   }
   std::cout << '\n';
 }
@@ -7538,14 +7540,19 @@ int run_steamvr_settings_mode(int argc, wchar_t** argv) {
 
 // Runs this executable with the given arguments, waits for it (bounded) and
 // copies what it printed into this viewer's own output, in order.
-int run_self(const std::wstring& arguments) {
+struct SelfRun {
+  int exit_code{-1};
+  std::string output;
+};
+
+SelfRun run_self(const std::wstring& arguments) {
   std::wstring executable(32768, L'\0');
   const auto length = GetModuleFileNameW(nullptr, executable.data(), 32768);
-  if (length == 0 || length >= 32768) return -1;
+  if (length == 0 || length >= 32768) return {};
   executable.resize(length);
   SECURITY_ATTRIBUTES inheritable{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
   HANDLE read_end{}, write_end{};
-  if (!CreatePipe(&read_end, &write_end, &inheritable, 0)) return -1;
+  if (!CreatePipe(&read_end, &write_end, &inheritable, 0)) return {};
   SetHandleInformation(read_end, HANDLE_FLAG_INHERIT, 0);
   STARTUPINFOW startup{};
   startup.cb = sizeof(startup);
@@ -7560,7 +7567,7 @@ int run_self(const std::wstring& arguments) {
   CloseHandle(write_end);
   if (!created) {
     CloseHandle(read_end);
-    return -1;
+    return {};
   }
   CloseHandle(information.hThread);
   std::string output;
@@ -7586,7 +7593,7 @@ int run_self(const std::wstring& arguments) {
   CloseHandle(information.hProcess);
   std::cout << output;
   if (!output.empty() && output.back() != '\n') std::cout << '\n';
-  return exit_code;
+  return {exit_code, output};
 }
 
 // The user's SteamVR session settings, applied once the OpenXR instance has
@@ -7595,11 +7602,13 @@ int run_self(const std::wstring& arguments) {
 // restores the backup first (apply_steamvr_session_settings).
 class SteamVrSessionSettings {
  public:
-  void apply(const darktidevr::core::SteamVrSessionValues& request) {
+  enum class Outcome { nothing_to_do, applied, rate_changed, steamvr_not_running, failed };
+
+  Outcome apply(const darktidevr::core::SteamVrSessionValues& request) {
     std::error_code error;
     const auto backup = steamvr_session_backup_path();
     const bool stale = !backup.empty() && std::filesystem::exists(backup, error);
-    if (request.empty() && !stale) return;
+    if (request.empty() && !stale) return Outcome::nothing_to_do;
     std::wstring arguments = L"--steamvr-settings apply";
     if (request.refresh_rate_hz) {
       arguments += L" --refresh-rate " + std::to_wstring(*request.refresh_rate_hz);
@@ -7611,7 +7620,20 @@ class SteamVrSessionSettings {
     // Armed even when apply fails part-way: restoring with no backup is a
     // no-op, and with one it is exactly what is wanted.
     armed_ = true;
-    run_self(arguments);
+    const auto run = run_self(arguments);
+    if (run.output.find("detail=steamvr-not-running") != std::string::npos) {
+      return Outcome::steamvr_not_running;
+    }
+    if (run.exit_code != 0) return Outcome::failed;
+    // "refresh_rate=144->90": an arrow means the rate was changed.
+    const auto rate = run.output.find(" refresh_rate=");
+    if (rate != std::string::npos) {
+      const auto end = run.output.find_first_of(" \r\n", rate + 1);
+      if (run.output.substr(rate, end - rate).find("->") != std::string::npos) {
+        return Outcome::rate_changed;
+      }
+    }
+    return Outcome::applied;
   }
   ~SteamVrSessionSettings() {
     if (armed_) run_self(L"--steamvr-settings restore");
@@ -7986,19 +8008,38 @@ int wmain(int argc, wchar_t** argv) {
     // Declared before the probe so it is destroyed after it: the user's
     // SteamVR settings go back once this viewer's OpenXR instance is gone.
     SteamVrSessionSettings steamvr_session_settings;
+    darktidevr::core::SteamVrSessionValues steamvr_request;
+    if (refresh_rate_request) {
+      steamvr_request.refresh_rate_hz =
+          static_cast<std::int32_t>(std::lround(*refresh_rate_request));
+    }
+    steamvr_request.motion_smoothing = motion_smoothing_request;
+    const bool steamvr_runtime =
+        !no_openxr && darktidevr::xr::runtime_manifest_is_steamvr(
+                          darktidevr::xr::active_openxr_runtime_manifest());
+    // Before the OpenXR instance when SteamVR is already running, so a
+    // refresh change is not in flight while the session is created: a
+    // session created 50 ms after SteamVR saved a new rate failed with
+    // XR_ERROR_RUNTIME_FAILURE (8 October). If SteamVR is not running the
+    // instance starts it, and the settings follow.
+    auto steamvr_outcome = SteamVrSessionSettings::Outcome::nothing_to_do;
+    if (steamvr_runtime) {
+      steamvr_outcome = steamvr_session_settings.apply(steamvr_request);
+    }
     OpenXrProbe openxr(!no_openxr, suggest_simple_profile, eye_extent_override,
                        refresh_rate_request);
-    if (openxr.instance_created() &&
-        darktidevr::xr::runtime_manifest_is_steamvr(
-            darktidevr::xr::active_openxr_runtime_manifest())) {
+    if (steamvr_runtime && openxr.instance_created()) {
       openxr.hide_dashboard_when_focused(hide_dashboard_request.value_or(false));
-      darktidevr::core::SteamVrSessionValues request;
-      if (refresh_rate_request) {
-        request.refresh_rate_hz =
-            static_cast<std::int32_t>(std::lround(*refresh_rate_request));
+      if (steamvr_outcome == SteamVrSessionSettings::Outcome::steamvr_not_running) {
+        steamvr_outcome = steamvr_session_settings.apply(steamvr_request);
       }
-      request.motion_smoothing = motion_smoothing_request;
-      steamvr_session_settings.apply(request);
+      if (steamvr_outcome == SteamVrSessionSettings::Outcome::rate_changed) {
+        // SteamVR reconfigures the headset's display for a new rate; give it
+        // the time it took in the run that worked before the session.
+        constexpr DWORD settle_ms = 2000;
+        std::cout << "steamvr_settings.settle_ms=" << settle_ms << '\n';
+        Sleep(settle_ms);
+      }
     }
     Harness harness(show, debug_layer, openxr.adapter_luid(),
                     openxr.minimum_feature_level());
