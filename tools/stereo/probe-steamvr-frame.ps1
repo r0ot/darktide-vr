@@ -20,10 +20,14 @@ param(
     [ValidatePattern('^\d+x\d+$')]
     [string] $EyeExtent,
 
-    # Ask the runtime for this display refresh rate for the probe's session
-    # (XR_FB_display_refresh_rate); SteamVR restores its own when it ends.
+    # This display refresh rate and motion smoothing for the probe's session
+    # only. Under SteamVR the viewer sets SteamVR's own settings and puts the
+    # user's back when it exits (--steamvr-settings).
     [ValidateRange(30, 1000)]
     [int] $RefreshRate,
+
+    [ValidateSet('on', 'off')]
+    [string] $MotionSmoothing,
 
     # Theatre runs the viewer's tracking loop, the only path that syncs the
     # controller actions: without it there is no controller_profile and no
@@ -95,6 +99,7 @@ switch ($Mode) {
 if ($NoSimpleProfile) { $arguments += ' --no-simple-profile' }
 if ($EyeExtent) { $arguments += " --eye-extent $EyeExtent" }
 if ($RefreshRate) { $arguments += " --refresh-rate $RefreshRate" }
+if ($MotionSmoothing) { $arguments += " --motion-smoothing $MotionSmoothing" }
 # The slowest Frame refresh is 72 Hz; a minute on top covers instance and
 # session start-up.
 $timeoutSeconds = [Math]::Min(300, [int][Math]::Ceiling($XrFrames / 72.0) + 60)
@@ -110,7 +115,7 @@ $logPath = Join-Path $OutputDirectory 'harness.log'
 # What the document's bring-up order asks to record, and what the 18
 # September work added for this runtime (rounding, sample count, layer
 # count, canted views).
-$recordPattern = '^(result=|openxr\.(active_runtime|runtime_name|runtime_version|runtime_ipd_metres|extension|stereo_views|recommended_size|eye_extent|display_refresh_rate|runtime_fov|swapchain|max_layer_count|layers_clamped|floor_space|interaction_profile|controller_profile|controller_samples|controller_(left|right)_(aim_tracked|thumbstick_active|thumbstick_changed|held)_frames|canted_views|session|frames|submitted_frames|not_rendered_frames|flat_fallback_frames|submit_hz|lifecycle))'
+$recordPattern = '^(result=|steamvr_settings\.|openxr\.(active_runtime|runtime_name|runtime_version|runtime_ipd_metres|extension|stereo_views|recommended_size|eye_extent|display_refresh_rate|runtime_fov|swapchain|max_layer_count|layers_clamped|floor_space|interaction_profile|controller_profile|controller_samples|controller_(left|right)_(aim_tracked|thumbstick_active|thumbstick_changed|held)_frames|canted_views|session|frames|submitted_frames|not_rendered_frames|flat_fallback_frames|submit_hz|lifecycle))'
 $recorded = @($output | Where-Object { $_ -match $recordPattern })
 $resultLine = $output | Where-Object { $_ -match '^result=' } | Select-Object -Last 1
 

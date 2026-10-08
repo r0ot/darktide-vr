@@ -17,10 +17,12 @@
 #include "tracked_cuff_renderer.h"
 #include "window_capture.h"
 #include "capture_worker.h"
+#include "openvr_settings.h"
 #include "bridge/shared_eye_surfaces.h"
 #include "core/head_tracking.h"
 #include "core/menu_pointer_input.h"
 #include "core/output_layout.h"
+#include "core/steamvr_session_settings.h"
 #include "core/aim_stabilization.h"
 #include "core/panel_pointer.h"
 #include "core/presentation_policy.h"
@@ -40,6 +42,8 @@
 #include <algorithm>
 #include <atomic>
 #include <array>
+#include <cwctype>
+#include <string_view>
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -5937,6 +5941,7 @@ class OpenXrProbe {
   }
 
   bool session_created() const { return session_ != XR_NULL_HANDLE; }
+  bool instance_created() const { return instance_ != XR_NULL_HANDLE; }
 
  private:
   XrPath path(const char* value) const {
@@ -6697,6 +6702,14 @@ class OpenXrProbe {
         rates.begin(), rates.end(), [requested](float left, float right) {
           return std::abs(left - requested) < std::abs(right - requested);
         });
+    // SteamVR lists only the rate it is already running at, so a request
+    // for anything else is not offered here; the SteamVR session settings
+    // (--steamvr-settings) change the rate itself.
+    if (std::abs(chosen - requested) > 1.0F) {
+      std::cout << "openxr.display_refresh_rate requested=" << requested
+                << " not-offered nearest=" << chosen << '\n';
+      return;
+    }
     const auto result = request_display_refresh_rate_(session_, chosen);
     std::cout << "openxr.display_refresh_rate requested=" << requested
               << " chosen=" << chosen << " previous=" << current
@@ -7305,6 +7318,13 @@ void usage() {
                "recommendation, so a performance comparison is repeatable. "
                "Without it, darktidevr_eye_extent.flag in the mod folder "
                "(one level above this executable) supplies the same value.\n"
+            << "--motion-smoothing on|off sets SteamVR's motion smoothing "
+               "for this session and puts the user's back afterwards. "
+               "Without it, darktidevr_motion_smoothing.flag supplies it.\n"
+            << "--steamvr-settings apply|restore [--refresh-rate HZ] "
+               "[--motion-smoothing on|off] changes SteamVR's own settings and "
+               "backs the user's up (apply), or puts them back (restore); the "
+               "viewer runs it itself around a SteamVR session.\n"
             << "--refresh-rate HZ asks the runtime for that display refresh "
                "rate for this session (XR_FB_display_refresh_rate), taking "
                "the nearest it offers; the runtime restores its own rate when "
@@ -7397,7 +7417,191 @@ std::wstring redirect_viewer_log() {
   return path;
 }
 
+// "on"/"off" and the usual spellings of each.
+std::optional<bool> parse_on_off(std::wstring value) {
+  for (auto& c : value) c = static_cast<wchar_t>(std::towlower(c));
+  if (value == L"on" || value == L"1" || value == L"true") return true;
+  if (value == L"off" || value == L"0" || value == L"false") return false;
+  return std::nullopt;
+}
+
+// Beside the viewer logs the native module writes
+// (src/producer/viewer_process.cpp), outside the game folder, so a package
+// reinstall cannot delete the user's values while they are held.
+std::filesystem::path steamvr_session_backup_path() {
+  std::wstring local(32768, L'\0');
+  const auto length = GetEnvironmentVariableW(L"LOCALAPPDATA", local.data(), 32768);
+  if (length == 0 || length >= 32768) return {};
+  local.resize(length);
+  return std::filesystem::path{local} / L"DarktideVR" /
+         L"steamvr-session-backup.txt";
+}
+
+void print_steamvr_session_result(
+    const char* action, const darktidevr::core::SteamVrSessionResult& result) {
+  std::cout << "steamvr_settings." << action << '='
+            << (result.ok ? "ok" : "failed");
+  if (!result.detail.empty()) std::cout << " detail=" << result.detail;
+  std::cout << " recovered_stale_backup="
+            << (result.recovered_stale_backup ? 1 : 0);
+  const auto& previous = result.previous;
+  const auto& applied = result.applied;
+  if (previous.refresh_rate_hz || applied.refresh_rate_hz) {
+    std::cout << " refresh_rate=";
+    if (previous.refresh_rate_hz) std::cout << *previous.refresh_rate_hz;
+    if (applied.refresh_rate_hz) std::cout << "->" << *applied.refresh_rate_hz;
+  }
+  if (previous.motion_smoothing || applied.motion_smoothing) {
+    std::cout << " motion_smoothing=";
+    if (previous.motion_smoothing) std::cout << (*previous.motion_smoothing ? 1 : 0);
+    if (applied.motion_smoothing) {
+      std::cout << "->" << (*applied.motion_smoothing ? 1 : 0);
+    }
+  }
+  std::cout << '\n';
+}
+
+// darktidevr-xr-harness --steamvr-settings apply|restore
+//     [--refresh-rate HZ] [--motion-smoothing on|off]
+// Runs in a child of the viewer, before its session and after it, so OpenVR
+// and the OpenXR runtime are never loaded into one process. Also the manual
+// way to put the user's SteamVR settings back after a crash.
+int run_steamvr_settings_mode(int argc, wchar_t** argv) {
+  try {
+    if (argc < 3) {
+      throw std::invalid_argument("--steamvr-settings expects apply or restore");
+    }
+    const std::wstring action = argv[2];
+    darktidevr::core::SteamVrSessionValues request;
+    for (int index = 3; index < argc; ++index) {
+      const std::wstring argument = argv[index];
+      if (argument == L"--refresh-rate" && index + 1 < argc) {
+        const auto rate = parse_refresh_rate(argv[++index]);
+        if (!rate) throw std::invalid_argument("--refresh-rate expects HZ");
+        request.refresh_rate_hz = static_cast<std::int32_t>(std::lround(*rate));
+      } else if (argument == L"--motion-smoothing" && index + 1 < argc) {
+        request.motion_smoothing = parse_on_off(argv[++index]);
+        if (!request.motion_smoothing) {
+          throw std::invalid_argument("--motion-smoothing expects on or off");
+        }
+      } else {
+        throw std::invalid_argument("Unknown or incomplete --steamvr-settings argument");
+      }
+    }
+    if (action != L"apply" && action != L"restore") {
+      throw std::invalid_argument("--steamvr-settings expects apply or restore");
+    }
+    const auto backup = steamvr_session_backup_path();
+    if (backup.empty()) throw std::runtime_error("LOCALAPPDATA is not set");
+    std::string failure;
+    const auto store = darktidevr::xr::OpenVrSettingsStore::connect(&failure);
+    const char* name = action == L"apply" ? "apply" : "restore";
+    if (!store) {
+      std::cout << "steamvr_settings." << name << "=failed detail=" << failure
+                << '\n';
+      return 1;
+    }
+    const auto result =
+        action == L"apply"
+            ? darktidevr::core::apply_steamvr_session_settings(*store, request, backup)
+            : darktidevr::core::restore_steamvr_session_settings(*store, backup);
+    print_steamvr_session_result(name, result);
+    return result.ok ? 0 : 1;
+  } catch (const std::exception& error) {
+    std::cerr << "darktidevr-xr-harness: " << error.what() << '\n';
+    return 1;
+  }
+}
+
+// Runs this executable with the given arguments, waits for it (bounded) and
+// copies what it printed into this viewer's own output, in order.
+int run_self(const std::wstring& arguments) {
+  std::wstring executable(32768, L'\0');
+  const auto length = GetModuleFileNameW(nullptr, executable.data(), 32768);
+  if (length == 0 || length >= 32768) return -1;
+  executable.resize(length);
+  SECURITY_ATTRIBUTES inheritable{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
+  HANDLE read_end{}, write_end{};
+  if (!CreatePipe(&read_end, &write_end, &inheritable, 0)) return -1;
+  SetHandleInformation(read_end, HANDLE_FLAG_INHERIT, 0);
+  STARTUPINFOW startup{};
+  startup.cb = sizeof(startup);
+  startup.dwFlags = STARTF_USESTDHANDLES;
+  startup.hStdOutput = write_end;
+  startup.hStdError = write_end;
+  PROCESS_INFORMATION information{};
+  std::wstring command = L"\"" + executable + L"\" " + arguments;
+  const auto created = CreateProcessW(
+      executable.c_str(), command.data(), nullptr, nullptr, TRUE,
+      CREATE_NO_WINDOW, nullptr, nullptr, &startup, &information);
+  CloseHandle(write_end);
+  if (!created) {
+    CloseHandle(read_end);
+    return -1;
+  }
+  CloseHandle(information.hThread);
+  std::string output;
+  std::array<char, 4096> buffer{};
+  DWORD read{};
+  while (ReadFile(read_end, buffer.data(), static_cast<DWORD>(buffer.size()),
+                  &read, nullptr) &&
+         read != 0) {
+    output.append(buffer.data(), read);
+  }
+  CloseHandle(read_end);
+  // The pipe closes when the child exits; the wait only guards a child that
+  // closed its output and hung.
+  int exit_code = -1;
+  if (WaitForSingleObject(information.hProcess, 15000) == WAIT_OBJECT_0) {
+    DWORD code{};
+    if (GetExitCodeProcess(information.hProcess, &code)) {
+      exit_code = static_cast<int>(code);
+    }
+  } else {
+    TerminateProcess(information.hProcess, 0xdead);
+  }
+  CloseHandle(information.hProcess);
+  std::cout << output;
+  if (!output.empty() && output.back() != '\n') std::cout << '\n';
+  return exit_code;
+}
+
+// The user's SteamVR session settings, applied once the OpenXR instance has
+// started SteamVR and put back when the viewer leaves wmain, by return or by
+// exception. A viewer killed with the game never gets here; the next viewer
+// restores the backup first (apply_steamvr_session_settings).
+class SteamVrSessionSettings {
+ public:
+  void apply(const darktidevr::core::SteamVrSessionValues& request) {
+    std::error_code error;
+    const auto backup = steamvr_session_backup_path();
+    const bool stale = !backup.empty() && std::filesystem::exists(backup, error);
+    if (request.empty() && !stale) return;
+    std::wstring arguments = L"--steamvr-settings apply";
+    if (request.refresh_rate_hz) {
+      arguments += L" --refresh-rate " + std::to_wstring(*request.refresh_rate_hz);
+    }
+    if (request.motion_smoothing) {
+      arguments += *request.motion_smoothing ? L" --motion-smoothing on"
+                                             : L" --motion-smoothing off";
+    }
+    // Armed even when apply fails part-way: restoring with no backup is a
+    // no-op, and with one it is exactly what is wanted.
+    armed_ = true;
+    run_self(arguments);
+  }
+  ~SteamVrSessionSettings() {
+    if (armed_) run_self(L"--steamvr-settings restore");
+  }
+
+ private:
+  bool armed_{};
+};
+
 int wmain(int argc, wchar_t** argv) {
+  if (argc >= 2 && std::wstring_view{argv[1]} == L"--steamvr-settings") {
+    return run_steamvr_settings_mode(argc, argv);
+  }
   try {
     const auto viewer_log = redirect_viewer_log();
     if (!viewer_log.empty()) {
@@ -7415,6 +7619,7 @@ int wmain(int argc, wchar_t** argv) {
     bool suggest_simple_profile = true;
     std::optional<darktidevr::core::PixelExtent> eye_extent_override;
     std::optional<float> refresh_rate_request;
+    std::optional<bool> motion_smoothing_request;
     bool require_openxr = false;
     bool require_rendering = false;
     bool theatre = false;
@@ -7479,6 +7684,11 @@ int wmain(int argc, wchar_t** argv) {
         eye_extent_override = parse_eye_extent(argv[++index]);
         if (!eye_extent_override) {
           throw std::invalid_argument("--eye-extent expects WIDTHxHEIGHT");
+        }
+      } else if (argument == L"--motion-smoothing" && index + 1 < argc) {
+        motion_smoothing_request = parse_on_off(argv[++index]);
+        if (!motion_smoothing_request) {
+          throw std::invalid_argument("--motion-smoothing expects on or off");
         }
       } else if (argument == L"--refresh-rate" && index + 1 < argc) {
         refresh_rate_request = parse_refresh_rate(argv[++index]);
@@ -7731,8 +7941,30 @@ int wmain(int argc, wchar_t** argv) {
                   << '\n';
       }
     }
+    if (!motion_smoothing_request) {
+      if (const auto text = read_mod_setting_flag(L"darktidevr_motion_smoothing.flag")) {
+        motion_smoothing_request = parse_on_off(*text);
+        std::cout << "openxr.motion_smoothing_flag="
+                  << (motion_smoothing_request ? "applied" : "ignored-unparsable")
+                  << '\n';
+      }
+    }
+    // Declared before the probe so it is destroyed after it: the user's
+    // SteamVR settings go back once this viewer's OpenXR instance is gone.
+    SteamVrSessionSettings steamvr_session_settings;
     OpenXrProbe openxr(!no_openxr, suggest_simple_profile, eye_extent_override,
                        refresh_rate_request);
+    if (openxr.instance_created() &&
+        darktidevr::xr::runtime_manifest_is_steamvr(
+            darktidevr::xr::active_openxr_runtime_manifest())) {
+      darktidevr::core::SteamVrSessionValues request;
+      if (refresh_rate_request) {
+        request.refresh_rate_hz =
+            static_cast<std::int32_t>(std::lround(*refresh_rate_request));
+      }
+      request.motion_smoothing = motion_smoothing_request;
+      steamvr_session_settings.apply(request);
+    }
     Harness harness(show, debug_layer, openxr.adapter_luid(),
                     openxr.minimum_feature_level());
     openxr.create_session(harness.device(), harness.queue(), !theatre);

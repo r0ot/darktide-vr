@@ -14,6 +14,7 @@ add_library(darktidevr_core STATIC
   shared_head_pose.cpp
   shared_menu_pointer_state.cpp
   settings_backup.cpp
+  steamvr_session_settings.cpp
   shared_presentation_state.cpp
   two_bone_ik.cpp
   xr_math.cpp
