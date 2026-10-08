@@ -18,7 +18,17 @@ param(
     # Pin the per-eye extent (WIDTHxHEIGHT) instead of SteamVR's
     # recommendation, for like-for-like comparisons.
     [ValidatePattern('^\d+x\d+$')]
-    [string] $EyeExtent
+    [string] $EyeExtent,
+
+    # Theatre runs the viewer's tracking loop, the only path that syncs the
+    # controller actions: without it there is no controller_profile and no
+    # controller counter (first Frame run, 8 October). Stereo is that loop
+    # submitting a projection pair, which is also where the eye views are
+    # measured (canted_views, runtime IPD), so it answers every question of
+    # bring-up steps 1 to 3 at once. Synthetic is the plain rendering smoke of
+    # the readiness preflight.
+    [ValidateSet('Stereo', 'Theatre', 'Synthetic')]
+    [string] $Mode = 'Stereo'
 )
 
 # The Steam Frame bring-up of docs/STEAMVR-STEAM-FRAME.md, steps 1 to 3: the
@@ -66,7 +76,17 @@ if (-not $OutputDirectory) {
 }
 [IO.Directory]::CreateDirectory($OutputDirectory) | Out-Null
 
-$arguments = "--frames 30 --debug-layer --require-openxr --require-rendering --xr-frames $XrFrames"
+$arguments = "--frames 30 --require-openxr --require-rendering --xr-frames $XrFrames"
+# Not the debug layer in the theatre loop: SteamVR's own runtime calls
+# ID3D12CompatibilityDevice::ReflectSharedProperties on the theatre's quad
+# images, the layer reports it as two errors, and the viewer fails a run that
+# rendered every frame (first Frame run, 8 October). The viewer never makes
+# that call. The synthetic smoke keeps the layer, as the preflight does.
+switch ($Mode) {
+    'Stereo' { $arguments += ' --theatre --stereo-sbs' }
+    'Theatre' { $arguments += ' --theatre' }
+    'Synthetic' { $arguments += ' --debug-layer' }
+}
 if ($NoSimpleProfile) { $arguments += ' --no-simple-profile' }
 if ($EyeExtent) { $arguments += " --eye-extent $EyeExtent" }
 # The slowest Frame refresh is 72 Hz; a minute on top covers instance and
@@ -84,7 +104,7 @@ $logPath = Join-Path $OutputDirectory 'harness.log'
 # What the document's bring-up order asks to record, and what the 18
 # September work added for this runtime (rounding, sample count, layer
 # count, canted views).
-$recordPattern = '^(result=|openxr\.(active_runtime|runtime_name|runtime_version|runtime_ipd_metres|extension|stereo_views|recommended_size|runtime_fov|swapchain|max_layer_count|layers_clamped|floor_space|interaction_profile\.|controller_profile|controller_samples|controller_(left|right)_(aim_tracked|thumbstick_active|thumbstick_changed)_frames|canted_views|session|frames|submitted_frames|not_rendered_frames|flat_fallback_frames|submit_hz|lifecycle))'
+$recordPattern = '^(result=|openxr\.(active_runtime|runtime_name|runtime_version|runtime_ipd_metres|extension|stereo_views|recommended_size|runtime_fov|swapchain|max_layer_count|layers_clamped|floor_space|interaction_profile|controller_profile|controller_samples|controller_(left|right)_(aim_tracked|thumbstick_active|thumbstick_changed|held)_frames|canted_views|session|frames|submitted_frames|not_rendered_frames|flat_fallback_frames|submit_hz|lifecycle))'
 $recorded = @($output | Where-Object { $_ -match $recordPattern })
 $resultLine = $output | Where-Object { $_ -match '^result=' } | Select-Object -Last 1
 

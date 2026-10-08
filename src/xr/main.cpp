@@ -5764,8 +5764,16 @@ class OpenXrProbe {
               << "openxr.controller_left_thumbstick_changed_frames="
               << controller_thumbstick_changed_frames_[0] << '\n'
               << "openxr.controller_right_thumbstick_changed_frames="
-              << controller_thumbstick_changed_frames_[1] << '\n'
-              << "openxr.controller_pointer_rays=" << controller_pointer_rays_
+              << controller_thumbstick_changed_frames_[1] << '\n';
+    for (std::size_t hand = 0; hand < controller_held_frames_.size(); ++hand) {
+      const auto& held = controller_held_frames_[hand];
+      std::cout << "openxr.controller_" << (hand == 0 ? "left" : "right")
+                << "_held_frames trigger=" << held[0]
+                << " squeeze=" << held[1] << " primary=" << held[2]
+                << " secondary=" << held[3] << " stick_click=" << held[4]
+                << " menu=" << held[5] << '\n';
+    }
+    std::cout << "openxr.controller_pointer_rays=" << controller_pointer_rays_
               << '\n'
               << "openxr.controller_pointer_hits=" << controller_pointer_hits_
               << '\n'
@@ -6330,6 +6338,23 @@ class OpenXrProbe {
                : 0U) |
           (read_bool(menu_action_, hand) ? darktidevr::core::controller_menu
                                          : 0U);
+      // Held frames per control, so a run can say which bindings a runtime
+      // actually delivered (Frame bring-up step 3) without a game attached.
+      auto& held = controller_held_frames_[hand];
+      held[0] += destination.trigger > 0.5F ? 1U : 0U;
+      held[1] += destination.squeeze > 0.5F ? 1U : 0U;
+      held[2] += (destination.buttons & darktidevr::core::controller_primary)
+                     ? 1U
+                     : 0U;
+      held[3] += (destination.buttons & darktidevr::core::controller_secondary)
+                     ? 1U
+                     : 0U;
+      held[4] +=
+          (destination.buttons & darktidevr::core::controller_stick_click) ? 1U
+                                                                           : 0U;
+      held[5] += (destination.buttons & darktidevr::core::controller_menu)
+                     ? 1U
+                     : 0U;
     }
     populate_body_local_controller_poses(sample);
     for (std::size_t hand = 0; hand < hand_paths_.size(); ++hand) {
@@ -6626,6 +6651,30 @@ class OpenXrProbe {
           flat_reanchor_after_ = changed->changeTime;
           std::cout << "openxr.head_recenter=runtime-pending\n";
         }
+      } else if (event.type ==
+                 XR_TYPE_EVENT_DATA_INTERACTION_PROFILE_CHANGED) {
+        // SteamVR binds a profile after the hands are already tracked, so
+        // the first controller_profile line can read <null> (the first Frame
+        // run, 8 October). Say what was bound, and let the per-hand geometry
+        // line be written again against it: aim_from_grip is a property of
+        // the bound profile, not of the hardware.
+        const auto* changed = reinterpret_cast<
+            const XrEventDataInteractionProfileChanged*>(&event);
+        if (changed->session == session_ && controller_writer_) {
+          for (std::size_t hand = 0; hand < hand_paths_.size(); ++hand) {
+            XrInteractionProfileState profile{
+                XR_TYPE_INTERACTION_PROFILE_STATE};
+            const auto result = xrGetCurrentInteractionProfile(
+                session_, hand_paths_[hand], &profile);
+            std::cout << "openxr.interaction_profile_changed hand="
+                      << (hand == 0 ? "left" : "right") << " profile="
+                      << (XR_SUCCEEDED(result)
+                              ? path_string(profile.interactionProfile)
+                              : std::string{"<error>"})
+                      << " result=" << static_cast<int>(result) << '\n';
+            controller_profile_logged_[hand] = false;
+          }
+        }
       } else if (event.type == XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING) {
         throw std::runtime_error("OpenXR runtime reported instance loss pending");
       }
@@ -6730,6 +6779,8 @@ class OpenXrProbe {
   std::array<std::uint64_t, 2> controller_aim_tracked_frames_{};
   std::array<std::uint64_t, 2> controller_thumbstick_active_frames_{};
   std::array<std::uint64_t, 2> controller_thumbstick_changed_frames_{};
+  // Per hand: trigger, squeeze, primary, secondary, stick click, menu.
+  std::array<std::array<std::uint64_t, 6>, 2> controller_held_frames_{};
   std::uint64_t controller_pointer_rays_{};
   std::uint64_t gameplay_reticle_frames_{};
   std::uint64_t gameplay_reticle_post_start_frames_{};
