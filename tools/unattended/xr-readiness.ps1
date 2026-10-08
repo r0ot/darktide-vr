@@ -279,7 +279,12 @@ function Assert-NoStaleFlags {
 # list would have refused every run the moment an option changed. They are read
 # from the deployment manifest instead, which is written by the deployment and
 # therefore cannot drift from it.
-$script:PersistentModFlags = @('darktidevr_crosshair_scale.flag')
+# The refresh rate and eye extent are the user's kept SteamVR session
+# settings (8 October), read by the viewer at start.
+$script:PersistentModFlags = @(
+    'darktidevr_crosshair_scale.flag',
+    'darktidevr_refresh_rate.flag',
+    'darktidevr_eye_extent.flag')
 
 # The flag names a deployment placed, from its own manifest. Takes the parsed
 # manifest rather than a path so it can be tested without one.

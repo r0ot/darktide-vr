@@ -183,9 +183,11 @@ class OpenXrProbe {
  public:
   explicit OpenXrProbe(
       bool enabled = true, bool suggest_simple_profile = true,
-      std::optional<darktidevr::core::PixelExtent> eye_extent_override = {})
+      std::optional<darktidevr::core::PixelExtent> eye_extent_override = {},
+      std::optional<float> refresh_rate_request = {})
       : suggest_simple_profile_(suggest_simple_profile),
-        eye_extent_override_(eye_extent_override) {
+        eye_extent_override_(eye_extent_override),
+        refresh_rate_request_(refresh_rate_request) {
     if (!enabled) {
       std::cout << "openxr.discovery=disabled\n";
       return;
@@ -249,9 +251,23 @@ class OpenXrProbe {
               << (frame_controller_extension_ ? "available" : "unavailable")
               << " spec_version=" << frame_controller_version << '\n';
 
+    // The session asks for its own refresh rate when the user has chosen one
+    // (8 October, Steam Frame): the runtime holds it for the session's life
+    // and restores its own setting afterwards, so nothing in SteamVR's
+    // settings is edited and a crash cannot leave the headset at 90 Hz.
+    display_refresh_rate_extension_ =
+        extension_version(XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME) != 0U;
+    std::cout << "openxr.extension.XR_FB_display_refresh_rate="
+              << (display_refresh_rate_extension_ ? "available"
+                                                  : "unavailable")
+              << '\n';
+
     std::vector<const char*> enabled_extensions;
     if (d3d12_extension_) {
       enabled_extensions.push_back(XR_KHR_D3D12_ENABLE_EXTENSION_NAME);
+    }
+    if (display_refresh_rate_extension_) {
+      enabled_extensions.push_back(XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME);
     }
     if (frame_controller_extension_) {
       enabled_extensions.push_back(kFrameControllerExtensionName);
@@ -296,6 +312,21 @@ class OpenXrProbe {
               << XR_VERSION_MAJOR(properties.runtimeVersion) << '.'
               << XR_VERSION_MINOR(properties.runtimeVersion) << '.'
               << XR_VERSION_PATCH(properties.runtimeVersion) << '\n';
+
+    if (display_refresh_rate_extension_) {
+      const auto load = [&](const char* name, auto* function) {
+        return XR_SUCCEEDED(xrGetInstanceProcAddr(
+            instance_, name, reinterpret_cast<PFN_xrVoidFunction*>(function)));
+      };
+      if (!load("xrEnumerateDisplayRefreshRatesFB",
+                &enumerate_display_refresh_rates_) ||
+          !load("xrGetDisplayRefreshRateFB", &get_display_refresh_rate_) ||
+          !load("xrRequestDisplayRefreshRateFB",
+                &request_display_refresh_rate_)) {
+        std::cout << "openxr.display_refresh_rate=functions-unavailable\n";
+        display_refresh_rate_extension_ = false;
+      }
+    }
 
     XrSystemGetInfo system_info{XR_TYPE_SYSTEM_GET_INFO};
     system_info.formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
@@ -550,6 +581,7 @@ class OpenXrProbe {
     begin_info.primaryViewConfigurationType =
         XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
     check_xr(xrBeginSession(session_, &begin_info), "xrBeginSession");
+    apply_display_refresh_rate();
     session_running_ = true;
     std::cout << "openxr.lifecycle=running\n";
 
@@ -1427,6 +1459,7 @@ class OpenXrProbe {
     begin_info.primaryViewConfigurationType =
         XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
     check_xr(xrBeginSession(session_, &begin_info), "xrBeginSession(theatre)");
+    apply_display_refresh_rate();
     session_running_ = true;
     std::uint32_t submitted_frames{};
     std::uint32_t not_rendered_frames{};
@@ -2075,6 +2108,7 @@ class OpenXrProbe {
             XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
         check_xr(xrBeginSession(session_, &resume_info),
                  "xrBeginSession(theatre resume)");
+        apply_display_refresh_rate();
         session_running_ = true;
         std::cout << "openxr.session_resume=ready paused_ms="
                   << std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -6617,6 +6651,58 @@ class OpenXrProbe {
     environment_blend_mode_ = blend_modes.front();
   }
 
+  // Called after every xrBeginSession, including a resume after the headset
+  // slept: whether a runtime keeps a request across a session stop is not
+  // specified, so it is made again. Reports what the runtime offers even
+  // when nothing is requested, which is how the choices are found.
+  void apply_display_refresh_rate() {
+    if (!display_refresh_rate_extension_) {
+      if (refresh_rate_request_) {
+        std::cout << "openxr.display_refresh_rate=extension-unavailable"
+                  << " requested=" << *refresh_rate_request_ << '\n';
+      }
+      return;
+    }
+    std::uint32_t count{};
+    std::vector<float> rates;
+    if (XR_SUCCEEDED(enumerate_display_refresh_rates_(session_, 0, &count,
+                                                      nullptr)) &&
+        count != 0) {
+      rates.resize(count);
+      if (XR_FAILED(enumerate_display_refresh_rates_(session_, count, &count,
+                                                     rates.data()))) {
+        count = 0;
+      }
+      rates.resize(count);
+    }
+    if (rates.empty()) {
+      std::cout << "openxr.display_refresh_rate=enumerate-failed\n";
+      return;
+    }
+    float current{};
+    get_display_refresh_rate_(session_, &current);
+    std::cout << "openxr.display_refresh_rates=";
+    for (std::size_t index = 0; index < rates.size(); ++index) {
+      std::cout << (index == 0 ? "" : ",") << rates[index];
+    }
+    std::cout << " current=" << current << '\n';
+    if (!refresh_rate_request_) {
+      return;
+    }
+    // The nearest rate the runtime offers: a request for 90 on a runtime
+    // offering 89.9 should not fail, and one for 100 where there is no 100
+    // takes the closest rather than nothing.
+    const auto requested = *refresh_rate_request_;
+    const auto chosen = *std::min_element(
+        rates.begin(), rates.end(), [requested](float left, float right) {
+          return std::abs(left - requested) < std::abs(right - requested);
+        });
+    const auto result = request_display_refresh_rate_(session_, chosen);
+    std::cout << "openxr.display_refresh_rate requested=" << requested
+              << " chosen=" << chosen << " previous=" << current
+              << " result=" << static_cast<int>(result) << '\n';
+  }
+
   void poll_session_events() {
     XrEventDataBuffer event{XR_TYPE_EVENT_DATA_BUFFER};
     while (xrPollEvent(instance_, &event) == XR_SUCCESS) {
@@ -6651,6 +6737,13 @@ class OpenXrProbe {
           flat_reanchor_after_ = changed->changeTime;
           std::cout << "openxr.head_recenter=runtime-pending\n";
         }
+      } else if (event.type ==
+                 XR_TYPE_EVENT_DATA_DISPLAY_REFRESH_RATE_CHANGED_FB) {
+        const auto* changed = reinterpret_cast<
+            const XrEventDataDisplayRefreshRateChangedFB*>(&event);
+        std::cout << "openxr.display_refresh_rate_changed from="
+                  << changed->fromDisplayRefreshRate
+                  << " to=" << changed->toDisplayRefreshRate << '\n';
       } else if (event.type ==
                  XR_TYPE_EVENT_DATA_INTERACTION_PROFILE_CHANGED) {
         // SteamVR binds a profile after the hands are already tracked, so
@@ -6812,6 +6905,11 @@ class OpenXrProbe {
   bool canted_views_reported_{};
   bool suggest_simple_profile_{true};
   std::optional<darktidevr::core::PixelExtent> eye_extent_override_;
+  std::optional<float> refresh_rate_request_;
+  bool display_refresh_rate_extension_{};
+  PFN_xrEnumerateDisplayRefreshRatesFB enumerate_display_refresh_rates_{};
+  PFN_xrGetDisplayRefreshRateFB get_display_refresh_rate_{};
+  PFN_xrRequestDisplayRefreshRateFB request_display_refresh_rate_{};
   std::optional<XrGraphicsRequirementsD3D12KHR> requirements_;
   std::vector<XrViewConfigurationView> views_;
   std::vector<XrSwapchain> swapchains_;
@@ -7204,7 +7302,14 @@ void usage() {
             << "--no-openxr runs desktop graphics only without runtime discovery.\n"
             << "--eye-extent WIDTHxHEIGHT pins the per-eye render and "
                "swapchain extent instead of following the runtime's "
-               "recommendation, so a performance comparison is repeatable.\n"
+               "recommendation, so a performance comparison is repeatable. "
+               "Without it, darktidevr_eye_extent.flag in the mod folder "
+               "(one level above this executable) supplies the same value.\n"
+            << "--refresh-rate HZ asks the runtime for that display refresh "
+               "rate for this session (XR_FB_display_refresh_rate), taking "
+               "the nearest it offers; the runtime restores its own rate when "
+               "the session ends. Without it, darktidevr_refresh_rate.flag in "
+               "the mod folder supplies it.\n"
             << "--no-simple-profile withholds the khr/simple controller "
                "binding, which SteamVR prefers over an Oculus Touch one and "
                "which carries select and menu only.\n"
@@ -7227,6 +7332,51 @@ void usage() {
 // case is a session that ends in a crash or a bugcheck.
 //
 // Returns the path it opened, or an empty string.
+// WIDTHxHEIGHT, both positive and at most 16384.
+std::optional<darktidevr::core::PixelExtent> parse_eye_extent(
+    const std::wstring& value) {
+  const auto cross = value.find_first_of(L"xX");
+  if (cross == std::wstring::npos) return std::nullopt;
+  const auto width = std::wcstoul(value.substr(0, cross).c_str(), nullptr, 10);
+  const auto height = std::wcstoul(value.substr(cross + 1).c_str(), nullptr, 10);
+  if (width == 0 || height == 0 || width > 16384 || height > 16384) {
+    return std::nullopt;
+  }
+  return darktidevr::core::PixelExtent{static_cast<std::uint32_t>(width),
+                                       static_cast<std::uint32_t>(height)};
+}
+
+// A refresh rate in Hz, within what any headset offers.
+std::optional<float> parse_refresh_rate(const std::wstring& value) {
+  wchar_t* end{};
+  const auto rate = std::wcstof(value.c_str(), &end);
+  if (end == value.c_str() || !(rate >= 30.0F && rate <= 1000.0F)) {
+    return std::nullopt;
+  }
+  return rate;
+}
+
+// The first line of a settings flag in the mod folder, one level above this
+// executable (where the package installs it, beside darktidevr_xr_log.flag),
+// trimmed. Absent, empty or unreadable is no setting.
+std::optional<std::wstring> read_mod_setting_flag(const wchar_t* name) {
+  std::wstring directory(32768, L'\0');
+  const auto length = GetModuleFileNameW(nullptr, directory.data(), 32768);
+  if (length == 0 || length >= 32768) return std::nullopt;
+  directory.resize(length);
+  const auto separator = directory.find_last_of(L"\\/");
+  if (separator == std::wstring::npos) return std::nullopt;
+  directory.resize(separator + 1);
+  std::ifstream file(std::filesystem::path{directory + L"..\\" + name});
+  std::string line;
+  if (!file || !std::getline(file, line)) return std::nullopt;
+  const auto first = line.find_first_not_of(" \t\r");
+  if (first == std::string::npos) return std::nullopt;
+  const auto last = line.find_last_not_of(" \t\r");
+  return std::wstring(line.begin() + static_cast<std::ptrdiff_t>(first),
+                      line.begin() + static_cast<std::ptrdiff_t>(last) + 1);
+}
+
 std::wstring redirect_viewer_log() {
   std::wstring directory(32768, L'\0');
   const auto length = GetModuleFileNameW(nullptr, directory.data(), 32768);
@@ -7264,6 +7414,7 @@ int wmain(int argc, wchar_t** argv) {
     bool no_openxr = false;
     bool suggest_simple_profile = true;
     std::optional<darktidevr::core::PixelExtent> eye_extent_override;
+    std::optional<float> refresh_rate_request;
     bool require_openxr = false;
     bool require_rendering = false;
     bool theatre = false;
@@ -7325,19 +7476,15 @@ int wmain(int argc, wchar_t** argv) {
         // WxH. The evidence tooling compares like for like, so any
         // performance comparison whose extent moved between runs means
         // nothing; this is how a comparison is made repeatable.
-        const std::wstring value = argv[++index];
-        const auto cross = value.find_first_of(L"xX");
-        unsigned long width{}, height{};
-        if (cross != std::wstring::npos) {
-          width = std::wcstoul(value.substr(0, cross).c_str(), nullptr, 10);
-          height = std::wcstoul(value.substr(cross + 1).c_str(), nullptr, 10);
-        }
-        if (width == 0 || height == 0) {
+        eye_extent_override = parse_eye_extent(argv[++index]);
+        if (!eye_extent_override) {
           throw std::invalid_argument("--eye-extent expects WIDTHxHEIGHT");
         }
-        eye_extent_override = darktidevr::core::PixelExtent{
-            static_cast<std::uint32_t>(width),
-            static_cast<std::uint32_t>(height)};
+      } else if (argument == L"--refresh-rate" && index + 1 < argc) {
+        refresh_rate_request = parse_refresh_rate(argv[++index]);
+        if (!refresh_rate_request) {
+          throw std::invalid_argument("--refresh-rate expects HZ");
+        }
       } else if (argument == L"--no-simple-profile") {
         // SteamVR looks for a generic-controller binding BEFORE a Touch one,
         // so the khr/simple profile this viewer offers is the likeliest cause
@@ -7563,7 +7710,29 @@ int wmain(int argc, wchar_t** argv) {
 
     darktidevr::xr::RuntimeD3D11Diagnostics runtime_diagnostics(
         runtime_d3d11_diagnostics,probe_shared_import_adapters);
-    OpenXrProbe openxr(!no_openxr, suggest_simple_profile, eye_extent_override);
+    // The play configuration is started by the game's native module with a
+    // fixed command line, so settings a user keeps reach the viewer as flag
+    // files in the mod folder, as the crosshair scale does. An argument wins.
+    // A flag that does not parse is reported and ignored rather than
+    // stopping the viewer.
+    if (!eye_extent_override) {
+      if (const auto text = read_mod_setting_flag(L"darktidevr_eye_extent.flag")) {
+        eye_extent_override = parse_eye_extent(*text);
+        std::cout << "openxr.eye_extent_flag="
+                  << (eye_extent_override ? "applied" : "ignored-unparsable")
+                  << '\n';
+      }
+    }
+    if (!refresh_rate_request) {
+      if (const auto text = read_mod_setting_flag(L"darktidevr_refresh_rate.flag")) {
+        refresh_rate_request = parse_refresh_rate(*text);
+        std::cout << "openxr.refresh_rate_flag="
+                  << (refresh_rate_request ? "applied" : "ignored-unparsable")
+                  << '\n';
+      }
+    }
+    OpenXrProbe openxr(!no_openxr, suggest_simple_profile, eye_extent_override,
+                       refresh_rate_request);
     Harness harness(show, debug_layer, openxr.adapter_luid(),
                     openxr.minimum_feature_level());
     openxr.create_session(harness.device(), harness.queue(), !theatre);

@@ -147,6 +147,16 @@ if(BUILD_TESTING)
     COMMAND darktidevr-synthetic-controller-publisher --help)
   add_test(NAME d3d12_smoke COMMAND darktidevr-xr-harness --no-openxr --frames 3)
   set_tests_properties(d3d12_smoke PROPERTIES TIMEOUT 30)
+  # The refresh-rate and eye-extent settings, read from flag files in the mod
+  # folder when no argument is given (8 October, Steam Frame).
+  add_test(NAME xr_settings_flags COMMAND powershell -NoProfile -ExecutionPolicy Bypass -File
+    "${CMAKE_CURRENT_SOURCE_DIR}/test-settings-flags.ps1"
+    -Viewer "$<TARGET_FILE:darktidevr-xr-harness>")
+  set_tests_properties(xr_settings_flags PROPERTIES
+    TIMEOUT 60 RUN_SERIAL TRUE
+    ENVIRONMENT "DARKTIDEVR_TEST_TRANSPORTS=1"
+    PASS_REGULAR_EXPRESSION "settings_flags=pass"
+    LABELS "openxr;settings")
   add_test(NAME d3d12_debug_resize
     COMMAND darktidevr-xr-harness --no-openxr --frames 8 --resize-at 4 --debug-layer)
   set_tests_properties(d3d12_debug_resize PROPERTIES TIMEOUT 30)
