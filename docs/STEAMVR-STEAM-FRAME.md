@@ -100,10 +100,76 @@ in one run. `runtime_ipd_metres` stays 0 without the game: it is filled only
 when the head pose is published to it.
 
 **Next, from the bring-up order: step 4, deploy the mod and launch.** Before
-that: SteamVR at 90 Hz and a render resolution well under 150 per cent (the
-owner wants the launcher to apply and restore these itself), SteamVR motion
-smoothing off for the first sessions (item 6), and a worn check of hand and
-weapon alignment on the Frame profile.
+that: SteamVR at 90 Hz and a render resolution well under 150 per cent,
+SteamVR motion smoothing off for the first sessions (item 6), and a worn
+check of hand and weapon alignment on the Frame profile. The first three are
+now automatic; see the next section.
+
+### Session settings and the dashboard, automatic (8 October)
+
+The owner asked for the refresh rate and resolution to be set when the mod
+launches and put back afterwards, without visiting SteamVR's menus. Built on
+branch `claude/steamvr-session-settings-2026-10-08`, worn-verified on the
+Frame. Each is a flag in the mod folder, one level above the viewer's `bin`,
+read at every start because the shipped viewer is started by the native
+module with a fixed command line; an argument of the same name wins:
+
+| flag | argument | effect |
+|---|---|---|
+| `darktidevr_refresh_rate.flag` (`90`) | `--refresh-rate HZ` | SteamVR's `steamvr/preferredRefreshRate` for the session, put back afterwards |
+| `darktidevr_motion_smoothing.flag` (`off`) | `--motion-smoothing on\|off` | SteamVR's `steamvr/motionSmoothing` likewise |
+| `darktidevr_eye_extent.flag` (`2160x2160`) | `--eye-extent WxH` | the viewer's own render and swapchain extent; SteamVR's settings untouched |
+| `darktidevr_hide_dashboard.flag` (`on`) | `--hide-dashboard` | closes SteamVR's dashboard when the session is shown |
+
+All four are `PersistentModFlags` in `tools/unattended/xr-readiness.ps1`.
+
+**Why SteamVR's settings and not OpenXR.** SteamVR enumerates
+`XR_FB_display_refresh_rate` but lists only the rate it is running at
+(`display_refresh_rates=144.009`), so a request for 90 is not offered. Its
+own setting is applied live: the Frame went 144 -> 90 -> 144 Hz in about
+0.2 s each way (`vrlink: SendUpdatedFramerateRequest` in `vrserver.txt`).
+The viewer still makes the FB request when the runtime offers the rate, which
+may matter on other runtimes.
+
+**How.** `src/core/steamvr_session_settings` holds the logic: read the user's
+values, write `%LOCALAPPDATA%\DarktideVR\steamvr-session-backup.txt` first,
+then set; restore and delete afterwards; a backup found at the next start is
+restored before anything else, so a killed game is undone by the next launch;
+a failed set rolls back. `src/xr/openvr_settings` reaches SteamVR through
+SteamVR's OWN `bin\win64\openvr_api.dll` as a background application (it
+never starts SteamVR), with the few flat-API signatures declared in the
+project, as the Streamline ABI is. The viewer runs that in a child of itself,
+`darktidevr-xr-harness --steamvr-settings apply|restore`, so OpenVR and the
+OpenXR runtime never share a process; `restore` is also the manual recovery.
+The dashboard is closed with SteamVR's own `bin\win64rcmd.exe
+--hidedashboard`.
+
+**Two things the worn runs found.**
+
+1. A session created 50 ms after SteamVR saved a new rate failed with
+   `XR_ERROR_RUNTIME_FAILURE` (the restore on the way out still ran). The
+   settings now go in before the OpenXR instance when SteamVR is running, or
+   just after it when the instance had to start SteamVR, and a rate change
+   settles 2 s before the session (`steamvr_settings.settle_ms=2000`).
+2. With the dashboard and desktop view up the whole time, SteamVR held the
+   session at `VISIBLE` and never sent `FOCUSED`, where earlier runs had
+   reported `FOCUSED` behind the dashboard. Either can be the last state, so
+   the dashboard is closed on whichever comes first. Worn: VISIBLE, the hide
+   0.3 s after SteamVR made the probe its scene app, FOCUSED, the Frame
+   profile bound and the hand tracked 2656 of 2700 frames with no button
+   pressed.
+
+Worn evidence, 8 October (the probe, `-RefreshRate 90 -MotionSmoothing off`):
+`steamvr_settings.apply=ok refresh_rate=144->90 motion_smoothing=1->0`,
+`display_refresh_rates=90 current=90`, `result=pass`,
+`steamvr_settings.restore=ok refresh_rate=144 motion_smoothing=1`. Killed
+mid-session: 90/off with the backup on disk; `--steamvr-settings restore`
+put back 144/on and removed it. A restore overwrites a change the user made
+in SteamVR during the session; that is the price of putting the rest back.
+
+Not done: an in-game options entry for these (the Lua mod writes flags the
+same way for the crosshair scale), and a script to write the flags into an
+installed mod folder, which waits for the first install.
 
 ## What the headset changes
 
