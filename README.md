@@ -29,7 +29,11 @@ contains no anti-cheat bypass implementation.
 ## Build and test
 
 Install Visual Studio 2022 C++ tools, CMake 3.25+, Git, and Python 3 (validated
-with 3.13.3). Install the pinned analysis packages in the Python environment
+with 3.13.3 and 3.12.10). The D3D12 debug-layer tests (`d3d12_debug_resize`,
+`billboard_draw_readback`, `stereo_input_copy`) also need the Windows optional
+feature **Graphics Tools** (`Add-WindowsCapability -Online -Name
+Tools.Graphics.DirectX~~~~0.0.1.0`, elevated); without it they fail with
+`0x887A002D`. Install the pinned analysis packages in the Python environment
 selected by CMake, then build the pinned Lua compiler and project:
 
 ```powershell
