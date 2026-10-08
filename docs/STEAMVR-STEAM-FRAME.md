@@ -12,6 +12,35 @@ machine were available to this investigation. Every claim about the codebase is
 cited to source; every claim about SteamVR or the Frame is cited to public
 documentation and must be confirmed by the first live run.
 
+## 8 October: a Frame on the desk, and what was rechecked first
+
+The project now has an owner with a Steam Frame (the Frame shipped on
+22 September) and an RTX 5090. Before its first run:
+
+- **The binding set was checked against Valve's published profile after
+  launch** ([Steam Frame Input](https://partner.steamgames.com/doc/steamhardware/steamframe/input),
+  read 8 October). Every one of the 20 Frame paths in `src/xr/main.cpp` is
+  spelled as Valve lists it. The face-button positions agree with the
+  comment: Valve says Touch's top button maps to the Frame's "Dpad Left,
+  Dpad Up, Dpad Right, or X, Y, B", so on the right hand A is the bottom
+  button and Y the top, and on the left `dpad_down` is the bottom and
+  `dpad_up` the top. The shoulder/bumper question below is settled as
+  `bumper` (`bumper/click`, `bumper/touch` on both hands) and stays unbound.
+  The fallback order Valve states is the one below: generic controller,
+  then Touch.
+- **Bring-up steps 1 to 3 are one script**:
+  `tools/stereo/probe-steamvr-frame.ps1`. It refuses unless SteamVR is the
+  registered runtime and `vrserver` is alive, runs the viewer alone for a
+  bounded session (default 2700 XR frames, about 30 s at 90 Hz, with
+  `--require-openxr --require-rendering`), and writes the full log and a
+  `summary.json` of the lines the bring-up order asks to record to
+  `artifacts/steamvr-probe/<UTC>/`. No game, no mod and no Darktide folder
+  are involved. `-NoSimpleProfile` and `-EyeExtent WxH` pass through to the
+  viewer. The controller lines need tracked hands, so the controllers must be
+  held and moved during the run.
+- **Item 3's pinned extent exists in the viewer** (`--eye-extent WIDTHxHEIGHT`,
+  `e5471d2`, 18 September) but not yet in the launcher.
+
 ## What the headset changes
 
 - The PC side is ordinary SteamVR. Valve documents the Frame as maintaining

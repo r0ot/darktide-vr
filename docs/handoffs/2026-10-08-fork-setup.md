@@ -18,8 +18,12 @@ point and the SteamVR branch of the readiness preflight applies.
 None of the previous owner's infrastructure exists here: no Forgejo, no N150,
 no `minipc`/`forgejo-n150` SSH aliases, no `github` remote.
 [PROJECT-INFRASTRUCTURE.md](../PROJECT-INFRASTRUCTURE.md) describes the old
-setup, not this one. `origin` is currently the upstream GitHub repository
-(`r0ot/darktide-vr`), pending the owner's fork URL.
+setup, not this one. Remotes: `origin` is the owner's fork
+(`github.com/r0ot/darktide-vr`); `upstream` is the original
+(`github.com/Brobert-in-aus/darktide-vr`), fetch-only (push URL `DISABLED`).
+At setup the fork's `main` equalled upstream's; upstream's
+`codex/alpha-4-2026-09-14` is one docs-only commit ahead (the release
+record). The headset is a Steam Frame.
 
 ## What was installed
 
@@ -87,11 +91,18 @@ present ([SOLOPLAY-SETUP.md](../SOLOPLAY-SETUP.md),
 [DEPLOYMENT-TRANSACTIONS.md](../DEPLOYMENT-TRANSACTIONS.md)), and which
 headset and runtime (the preflight refuses anything but VDXR and SteamVR).
 
+## Steam Frame, first pass (no headset run yet)
+
+The owner chose to start from [STEAMVR-STEAM-FRAME.md](../STEAMVR-STEAM-FRAME.md)
+before the Darktide installation. SteamVR is already the registered OpenXR
+runtime here (`steamxr_win64.json`, the only one available). The Frame
+bindings were rechecked against Valve's post-launch page and match; bring-up
+steps 1 to 3 are now `tools/stereo/probe-steamvr-frame.ps1`, which refused
+correctly with SteamVR stopped. Its first real run waits on SteamVR being
+started with the Frame awake and the controllers in hand.
+
 ## Open questions for the owner
 
-- The fork's URL, so `origin` can point at it and the upstream becomes
-  `upstream` (the convention in PROJECT-INFRASTRUCTURE.md).
-- Headset and OpenXR runtime.
 - Whether the previous owner's standing brief (no public missions, new
   features default off, unattended-launch rules, the worn checklist as the
   acceptance gate) carries over as-is.
