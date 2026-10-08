@@ -15,6 +15,14 @@ std::wstring active_openxr_runtime_manifest();
 // makes (tools/unattended/xr-readiness.ps1, Get-XrRuntimeProfile).
 bool runtime_manifest_is_steamvr(const std::wstring& manifest);
 
+// Closes SteamVR's dashboard with the vrcmd.exe SteamVR ships beside its
+// runtime (`vrcmd --hidedashboard`), without waiting for it. While the
+// dashboard is up SteamVR keeps the controllers from the application -- its
+// interaction profile reads <null> -- and the OpenXR session still says
+// FOCUSED, so nothing in OpenXR can tell (8 October). False with a reason
+// when SteamVR is not the runtime or vrcmd cannot be started.
+bool hide_steamvr_dashboard(std::string* failure);
+
 // SteamVR's live settings through SteamVR's OWN openvr_api.dll, loaded from
 // the runtime's bin\win64 folder: nothing of OpenVR is built or shipped here.
 // It connects as a background application, which never starts SteamVR and

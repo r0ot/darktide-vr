@@ -5942,6 +5942,10 @@ class OpenXrProbe {
 
   bool session_created() const { return session_ != XR_NULL_HANDLE; }
   bool instance_created() const { return instance_ != XR_NULL_HANDLE; }
+  // Close SteamVR's dashboard each time the session becomes focused.
+  void hide_dashboard_when_focused(bool enabled) {
+    hide_dashboard_when_focused_ = enabled;
+  }
 
  private:
   XrPath path(const char* value) const {
@@ -6726,6 +6730,19 @@ class OpenXrProbe {
           session_state_ = changed->state;
           std::cout << "openxr.session_state="
                     << static_cast<int>(session_state_) << '\n';
+          // Once per running session: a headset that slept and woke can
+          // bring the dashboard back, so a resume hides it again.
+          if (session_state_ == XR_SESSION_STATE_FOCUSED &&
+              hide_dashboard_when_focused_ && !dashboard_hidden_this_session_) {
+            dashboard_hidden_this_session_ = true;
+            std::string failure;
+            const bool started = darktidevr::xr::hide_steamvr_dashboard(&failure);
+            std::cout << "steamvr.hide_dashboard="
+                      << (started ? "requested" : "failed")
+                      << (started ? "" : " detail=") << failure << '\n';
+          } else if (session_state_ == XR_SESSION_STATE_STOPPING) {
+            dashboard_hidden_this_session_ = false;
+          }
           if (session_state_ == XR_SESSION_STATE_STOPPING) {
             // The runtime stops a running session when the headset sleeps
             // (unworn); READY follows when it wakes. Loops that can wait for
@@ -6933,6 +6950,8 @@ class OpenXrProbe {
   bool session_running_{};
   bool runtime_exit_requested_{};
   bool runtime_stop_pending_{};
+  bool hide_dashboard_when_focused_{};
+  bool dashboard_hidden_this_session_{};
   bool runtime_stop_resumable_{};
 };
 
@@ -7318,6 +7337,10 @@ void usage() {
                "recommendation, so a performance comparison is repeatable. "
                "Without it, darktidevr_eye_extent.flag in the mod folder "
                "(one level above this executable) supplies the same value.\n"
+            << "--hide-dashboard closes SteamVR's dashboard when the session "
+               "becomes focused, which is when SteamVR hands it the "
+               "controllers. Without it, darktidevr_hide_dashboard.flag "
+               "(on|off) supplies it.\n"
             << "--motion-smoothing on|off sets SteamVR's motion smoothing "
                "for this session and puts the user's back afterwards. "
                "Without it, darktidevr_motion_smoothing.flag supplies it.\n"
@@ -7620,6 +7643,7 @@ int wmain(int argc, wchar_t** argv) {
     std::optional<darktidevr::core::PixelExtent> eye_extent_override;
     std::optional<float> refresh_rate_request;
     std::optional<bool> motion_smoothing_request;
+    std::optional<bool> hide_dashboard_request;
     bool require_openxr = false;
     bool require_rendering = false;
     bool theatre = false;
@@ -7685,6 +7709,8 @@ int wmain(int argc, wchar_t** argv) {
         if (!eye_extent_override) {
           throw std::invalid_argument("--eye-extent expects WIDTHxHEIGHT");
         }
+      } else if (argument == L"--hide-dashboard") {
+        hide_dashboard_request = true;
       } else if (argument == L"--motion-smoothing" && index + 1 < argc) {
         motion_smoothing_request = parse_on_off(argv[++index]);
         if (!motion_smoothing_request) {
@@ -7949,6 +7975,14 @@ int wmain(int argc, wchar_t** argv) {
                   << '\n';
       }
     }
+    if (!hide_dashboard_request) {
+      if (const auto text = read_mod_setting_flag(L"darktidevr_hide_dashboard.flag")) {
+        hide_dashboard_request = parse_on_off(*text);
+        std::cout << "openxr.hide_dashboard_flag="
+                  << (hide_dashboard_request ? "applied" : "ignored-unparsable")
+                  << '\n';
+      }
+    }
     // Declared before the probe so it is destroyed after it: the user's
     // SteamVR settings go back once this viewer's OpenXR instance is gone.
     SteamVrSessionSettings steamvr_session_settings;
@@ -7957,6 +7991,7 @@ int wmain(int argc, wchar_t** argv) {
     if (openxr.instance_created() &&
         darktidevr::xr::runtime_manifest_is_steamvr(
             darktidevr::xr::active_openxr_runtime_manifest())) {
+      openxr.hide_dashboard_when_focused(hide_dashboard_request.value_or(false));
       darktidevr::core::SteamVrSessionValues request;
       if (refresh_rate_request) {
         request.refresh_rate_hz =

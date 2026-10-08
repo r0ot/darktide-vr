@@ -79,6 +79,29 @@ bool runtime_manifest_is_steamvr(const std::wstring& manifest) {
   return name == L"steamxr_win64.json";
 }
 
+bool hide_steamvr_dashboard(std::string* failure) {
+  const auto manifest = active_openxr_runtime_manifest();
+  if (!runtime_manifest_is_steamvr(manifest)) {
+    if (failure) *failure = "runtime-not-steamvr";
+    return false;
+  }
+  const auto vrcmd = std::filesystem::path{manifest}.parent_path() / L"bin" /
+                     L"win64" / L"vrcmd.exe";
+  std::wstring command = L"\"" + vrcmd.wstring() + L"\" --hidedashboard";
+  STARTUPINFOW startup{};
+  startup.cb = sizeof(startup);
+  PROCESS_INFORMATION information{};
+  if (!CreateProcessW(vrcmd.c_str(), command.data(), nullptr, nullptr, FALSE,
+                      CREATE_NO_WINDOW, nullptr, nullptr, &startup,
+                      &information)) {
+    if (failure) *failure = "vrcmd-start-failed";
+    return false;
+  }
+  CloseHandle(information.hThread);
+  CloseHandle(information.hProcess);
+  return true;
+}
+
 std::unique_ptr<OpenVrSettingsStore> OpenVrSettingsStore::connect(
     std::string* failure) {
   const auto fail = [&](const char* reason) {
