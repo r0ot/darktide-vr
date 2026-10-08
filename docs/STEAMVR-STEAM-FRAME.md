@@ -52,7 +52,9 @@ under `artifacts/steamvr-probe/` (ignored). Bring-up steps 1 to 3 are
 | D3D12 | `XR_KHR_D3D12_enable=available`; session, swapchains and 2700 of 2700 frames submitted, `not_rendered_frames=0` |
 | OpenXR version | SteamVR refuses a 1.1 instance; the viewer's existing retry takes 1.0 (`openxr.api_retry=1.0`). The loader prints two `xrCreateInstance failed` lines first: harmless |
 | extent | `recommended_size=3244x3244` per eye, which is the 2160 panel at SteamVR's 150 per cent render resolution. Both eyes of Darktide at that size is the item 3 problem, in numbers |
-| refresh | `last_display_period_ms=6.944`, so the Frame was at 144 Hz (experimental). Set 90 Hz before the first game run; see the streaming-rate result of 18 September |
+| refresh | `last_display_period_ms=6.944`, so the Frame was at 144 Hz (experimental; SteamVR's `preferredRefreshRate`). SteamVR's own stats for the run: 2705 presents, 0 dropped, 0 reprojected. Set 90 Hz before the first game run; see the streaming-rate result of 18 September |
+| extensions | 41 enumerated (read through the loader, no instance). Of note: `XR_FB_display_refresh_rate` (the session can ask for its own rate), `XR_EXT_user_presence` (a candidate for the open "what keeps a Frame awake" question), `XR_KHR_visibility_mask`, `XR_META_recommended_layer_resolution`, `XR_EXT_eye_gaze_interaction`. **Not** `XR_EXT_frame_synthesis` or `XR_FB_space_warp`, though both names are in the runtime DLL |
+| app key | SteamVR files the viewer under `system.generated.openxr.darktidevr harness.darktidevr-xr-harness.exe` (the application name plus the executable), which is the key any per-application SteamVR setting for the mod lives under |
 | floor | `floor_space=stage` |
 | layers | `max_layer_count=16`, swapchains to 8192x8192; no rounding line, 3 images each |
 | controllers | **both hands bound `/interaction_profiles/valve/frame_controller_valve`**: the native profile, not Touch emulation. All twelve controls delivered (held-frame counters nonzero for trigger, squeeze, primary, secondary, stick click and menu on both hands; sticks changed on both) |
@@ -63,11 +65,23 @@ under `artifacts/steamvr-probe/` (ignored). Bring-up steps 1 to 3 are
 Three things the runs found and fixed in the viewer or the probe:
 
 1. **`xrGetCurrentInteractionProfile` reads `<null>` when the hands first
-   track.** SteamVR binds the profile about a second later and says so with
+   track.** The profile was bound 1.2 s later, announced by
    `XR_TYPE_EVENT_DATA_INTERACTION_PROFILE_CHANGED`, which the viewer did not
    handle, so the one `controller_profile` line could never answer step 3.
    It now logs `openxr.interaction_profile_changed hand= profile=` and writes
    the geometry line again against the bound profile.
+   **The delay was the dashboard, not the runtime.** The owner was wearing
+   the headset with SteamVR's dashboard and desktop view open and dismissed
+   them with the Steam button once the probe appeared. SteamVR's own log
+   (`Steam/logs/vrserver.txt`) shows it: the app became the scene app at
+   14:36:13.8, and at 14:36:14.99 the driver dropped
+   `SystemBehaviorFlag_LaserMouse` and
+   `SystemBehaviorFlag_DriverRequestsApplicationPause`, the moment the hands
+   were handed over. **The OpenXR session state said `FOCUSED` the whole
+   time**: on SteamVR the session state does not reveal the dashboard, and a
+   `<null>` interaction profile does. Anything that waits for input focus
+   (the launcher, an unattended run) must not take `FOCUSED` as proof that
+   the controllers are the game's.
 2. **Only the sticks were counted.** `openxr.controller_<hand>_held_frames`
    now counts held frames for trigger, squeeze, primary, secondary, stick
    click and menu.
