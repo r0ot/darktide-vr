@@ -41,6 +41,56 @@ The project now has an owner with a Steam Frame (the Frame shipped on
 - **Item 3's pinned extent exists in the viewer** (`--eye-extent WIDTHxHEIGHT`,
   `e5471d2`, 18 September) but not yet in the launcher.
 
+### The first Frame runs (8 October, worn, viewer only)
+
+Three probe runs, SteamVR 2.17.10, the Frame on the owner's head; summaries
+under `artifacts/steamvr-probe/` (ignored). Bring-up steps 1 to 3 are
+**done** and every one came back the better way:
+
+| question | answer |
+|---|---|
+| D3D12 | `XR_KHR_D3D12_enable=available`; session, swapchains and 2700 of 2700 frames submitted, `not_rendered_frames=0` |
+| OpenXR version | SteamVR refuses a 1.1 instance; the viewer's existing retry takes 1.0 (`openxr.api_retry=1.0`). The loader prints two `xrCreateInstance failed` lines first: harmless |
+| extent | `recommended_size=3244x3244` per eye, which is the 2160 panel at SteamVR's 150 per cent render resolution. Both eyes of Darktide at that size is the item 3 problem, in numbers |
+| refresh | `last_display_period_ms=6.944`, so the Frame was at 144 Hz (experimental). Set 90 Hz before the first game run; see the streaming-rate result of 18 September |
+| floor | `floor_space=stage` |
+| layers | `max_layer_count=16`, swapchains to 8192x8192; no rounding line, 3 images each |
+| controllers | **both hands bound `/interaction_profiles/valve/frame_controller_valve`**: the native profile, not Touch emulation. All twelve controls delivered (held-frame counters nonzero for trigger, squeeze, primary, secondary, stick click and menu on both hands; sticks changed on both) |
+| canted views | **not canted**: no `openxr.canted_views` line in 2700 stereo frames, so the two eye orientations never differed by 0.1 degrees. Item 5 closes with no change; the eye-0 head orientation is correct on the Frame |
+| field of view | per eye, radians left/right/up/down: eye 0 `-1.0285, 0.8824, 0.8611, -1.0494`; eye 1 `-0.8797, 1.0304, 0.8670, -1.0429`. About 109.5 degrees each way, wider outward (58.9 against 50.5) and **downward** (60.1 against 49.3). The recentred symmetric projection handles both; its displacement is about 4.2 degrees horizontally and 5.4 vertically, both eyes pitched down by the same amount |
+| grip to aim | `aim_from_grip` on the Frame profile: a 42.8 degree rotation about the hand's X axis (`q=0.365,0,0,0.931`) and an offset of `(±0.0158, -0.0346, 0.0738)` m, mirrored between hands. The mod's hand, weapon and holster offsets were tuned on Touch, so expect them to sit off until checked worn in the game |
+
+Three things the runs found and fixed in the viewer or the probe:
+
+1. **`xrGetCurrentInteractionProfile` reads `<null>` when the hands first
+   track.** SteamVR binds the profile about a second later and says so with
+   `XR_TYPE_EVENT_DATA_INTERACTION_PROFILE_CHANGED`, which the viewer did not
+   handle, so the one `controller_profile` line could never answer step 3.
+   It now logs `openxr.interaction_profile_changed hand= profile=` and writes
+   the geometry line again against the bound profile.
+2. **Only the sticks were counted.** `openxr.controller_<hand>_held_frames`
+   now counts held frames for trigger, squeeze, primary, secondary, stick
+   click and menu.
+3. **The debug layer fails a theatre run that rendered every frame.**
+   SteamVR's runtime calls `ID3D12CompatibilityDevice::ReflectSharedProperties`
+   on the theatre's quad images ("Resource provided was not shared by
+   D3D11"); the viewer never makes that call. The probe runs the theatre loop
+   without `--debug-layer`. `xr_theatre_smoke` and `xr_stereo_sbs_smoke` would
+   fail the same way on SteamVR if the headset tests were enabled.
+
+The plain smoke (`-Mode Synthetic`, the preflight's) never syncs actions, so
+it has no controller lines at all, and the view measurements (canted views,
+runtime FOV) only run in the stereo path. The probe's default is therefore
+`-Mode Stereo` (`--theatre --stereo-sbs`), which answers all of steps 1 to 3
+in one run. `runtime_ipd_metres` stays 0 without the game: it is filled only
+when the head pose is published to it.
+
+**Next, from the bring-up order: step 4, deploy the mod and launch.** Before
+that: SteamVR at 90 Hz and a render resolution well under 150 per cent (the
+owner wants the launcher to apply and restore these itself), SteamVR motion
+smoothing off for the first sessions (item 6), and a worn check of hand and
+weapon alignment on the Frame profile.
+
 ## What the headset changes
 
 - The PC side is ordinary SteamVR. Valve documents the Frame as maintaining

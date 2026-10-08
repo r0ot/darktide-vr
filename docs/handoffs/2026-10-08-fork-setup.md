@@ -98,8 +98,22 @@ before the Darktide installation. SteamVR is already the registered OpenXR
 runtime here (`steamxr_win64.json`, the only one available). The Frame
 bindings were rechecked against Valve's post-launch page and match; bring-up
 steps 1 to 3 are now `tools/stereo/probe-steamvr-frame.ps1`, which refused
-correctly with SteamVR stopped. Its first real run waits on SteamVR being
-started with the Frame awake and the controllers in hand.
+correctly with SteamVR stopped.
+
+Then three worn runs, viewer only (results in
+[STEAMVR-STEAM-FRAME.md](../STEAMVR-STEAM-FRAME.md#the-first-frame-runs-8-october-worn-viewer-only)):
+D3D12, stage floor and every frame submitted; **both hands on the native
+Frame profile with all twelve controls delivered**; the views are **not
+canted**, closing item 5 with no change; 3244x3244 recommended per eye at
+144 Hz. The runs exposed two viewer gaps, both fixed (the bound profile is
+logged from the profile-changed event; held frames are counted per
+control), and one SteamVR debug-layer false failure in the theatre loop
+(the probe leaves the layer off there). After the change: full Release build clean,
+282 of 282 pass, serial.
+
+**The owner's request for later**: when launching the mod, apply SteamVR's
+refresh rate and render resolution automatically and put them back
+afterwards. Not built yet; it belongs with the first game launch.
 
 ## Open questions for the owner
 
