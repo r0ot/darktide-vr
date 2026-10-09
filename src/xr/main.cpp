@@ -7805,7 +7805,55 @@ class SteamVrSessionSettings {
   bool guard_started_{};
 };
 
+// Loads System32's d3d12.dll before anything can load the mod's proxy, which
+// the package installs beside this executable (mods/darktidevr/bin/d3d12.dll)
+// for the game to copy. d3d12.dll is not a known DLL, so the delay-loaded
+// import, and every module SteamVR's runtime loads into this process, would
+// otherwise resolve it from the application directory. The proxy forwards
+// only the public exports; SteamVR's OpenXR runtime, given it, accepted every
+// xrEndFrame and showed none of them (9 October: the compositor's last frame
+// renderer stayed 0 with the proxy beside the viewer, and became the viewer
+// the moment the proxy was removed). Once a module named d3d12.dll is loaded,
+// later loads by name return it.
+struct SystemD3d12 {
+  bool loaded{};
+  bool system{};
+  bool proxy_beside{};
+};
+
+SystemD3d12 pin_system_d3d12() {
+  SystemD3d12 result;
+  const auto module =
+      LoadLibraryExW(L"d3d12.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+  result.loaded = module != nullptr;
+  std::wstring loaded(32768, L'\0');
+  std::wstring system(MAX_PATH, L'\0');
+  std::wstring executable(32768, L'\0');
+  const auto loaded_length =
+      module ? GetModuleFileNameW(module, loaded.data(), 32768) : 0;
+  const auto system_length = GetSystemDirectoryW(system.data(), MAX_PATH);
+  const auto executable_length =
+      GetModuleFileNameW(nullptr, executable.data(), 32768);
+  if (loaded_length != 0 && system_length != 0 && system_length < MAX_PATH) {
+    loaded.resize(loaded_length);
+    system.resize(system_length);
+    result.system =
+        CompareStringOrdinal(loaded.c_str(), static_cast<int>(system.size()),
+                             system.c_str(), static_cast<int>(system.size()),
+                             TRUE) == CSTR_EQUAL &&
+        loaded.size() > system.size() && loaded[system.size()] == L'\\';
+  }
+  if (executable_length != 0 && executable_length < 32768) {
+    executable.resize(executable_length);
+    const auto beside = std::filesystem::path(executable).parent_path() / L"d3d12.dll";
+    std::error_code error;
+    result.proxy_beside = std::filesystem::exists(beside, error);
+  }
+  return result;
+}
+
 int wmain(int argc, wchar_t** argv) {
+  const auto system_d3d12 = pin_system_d3d12();
   if (argc >= 2 && std::wstring_view{argv[1]} == L"--steamvr-settings") {
     return run_steamvr_settings_mode(argc, argv);
   }
@@ -7817,6 +7865,10 @@ int wmain(int argc, wchar_t** argv) {
       // always beside the executable.
       std::cout << "openxr.log_file=darktidevr-xr-viewer.log\n";
     }
+    std::cout << "viewer.d3d12 loaded=" << (system_d3d12.loaded ? 1 : 0)
+              << " system32=" << (system_d3d12.system ? 1 : 0)
+              << " proxy_beside=" << (system_d3d12.proxy_beside ? 1 : 0)
+              << '\n';
     UINT frames = 120;
     bool show = false;
     bool debug_layer = false;

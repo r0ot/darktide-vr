@@ -79,7 +79,13 @@ target_link_libraries(darktidevr-xr-harness PRIVATE
   darktidevr-menu-input darktidevr-synthetic-controller
   darktidevr-synthetic-head darktidevr-tracked-cuff-renderer
   darktidevr-panel-renderer darktidevr-ui-projection
-  darktidevr-runtime-d3d11-diagnostics d3d12 d3dcompiler dxgi dxguid)
+  darktidevr-runtime-d3d11-diagnostics d3d12 d3dcompiler dxgi dxguid delayimp)
+# The package installs the viewer beside the mod's d3d12.dll proxy
+# (mods/darktidevr/bin), and a static import would load that proxy into the
+# viewer. SteamVR's OpenXR runtime then finds the proxy when it shares the
+# swapchains with its compositor, and no frame is ever shown (9 October). The
+# import is delay-loaded so wmain can pin System32's d3d12.dll first.
+target_link_options(darktidevr-xr-harness PRIVATE "/DELAYLOAD:d3d12.dll")
 
 add_custom_command(TARGET darktidevr-xr-harness POST_BUILD
   COMMAND "${CMAKE_COMMAND}" -E copy_if_different
