@@ -93,11 +93,13 @@ play, repeat. `mods remove <name>` takes one back out.
   build's database, from before the 7 October update. Modded profiles write
   the `.bak` as THIS build's vanilla database, so the toggle is safe again.
 - **The executable** is patched by the VR mod's own
-  `tools\set-skinner-assert-patch.ps1`, also on a copy. It knows exactly one
-  build's hash; **build 25681127 is not supported yet** (`Unexpected byte 0x49
-  at file offset 0x7a7586`), so every VR profile refuses until the patch is
-  ported. The VR proxy `binaries\d3d12.dll` is the VR package's own
-  `bin\d3d12.dll`.
+  `tools\set-skinner-assert-patch.ps1`, also on a copy. It accepts only builds
+  in its table (pristine SHA-256 and the two guard offsets) and refuses any
+  other, so a game update blocks VR profiles until the new build is added:
+  run `tools/stereo/find-skinner-assert-sites.py` on the new `Darktide.exe`,
+  confirm the two sites, add the row. Build 25681127 (7 October) was added
+  that way: offsets `0x7c8ee6` and `0x7c8fe2`. The VR proxy
+  `binaries\d3d12.dll` is the VR package's own `bin\d3d12.dll`.
 
 The VR component is imported from a runtime package
 (`tools/release/build-runtime-package.ps1`), the archive a player would get,
