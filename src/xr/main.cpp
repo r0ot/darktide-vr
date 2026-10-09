@@ -178,6 +178,13 @@ std::wstring registry_string(HKEY root, const wchar_t* subkey,
 // Steam Frame. Both names postdate the vendored OpenXR SDK, so they are
 // spelled out: the extension name is only ever compared against the runtime's
 // enumeration, and xrStringToPath takes a string.
+}  // namespace
+
+// Defined with the other settings-flag helpers below wmain's namespace.
+std::optional<std::wstring> read_mod_setting_flag(const wchar_t* name);
+
+namespace {
+
 inline constexpr const char* kFrameControllerExtensionName =
     "XR_VALVE_frame_controller_interaction";
 inline constexpr const char* kFrameControllerProfilePath =
@@ -1744,6 +1751,12 @@ class OpenXrProbe {
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT projected_eye_readback_footprint{};
     std::uint64_t projected_eye_readback_total_bytes{};
     bool projected_eye_readback_requested{};
+    const bool board_opaque_requested = [] {
+      const auto text = read_mod_setting_flag(L"darktidevr_board_opaque.flag");
+      const bool on = text && *text == L"on";
+      if (text) std::cout << "openxr.board_opaque=" << (on ? 1 : 0) << '\n';
+      return on;
+    }();
     bool projected_eye_readback_copied_this_frame{};
     const auto projected_eye_readback_request_path =
         std::filesystem::temp_directory_path() /
@@ -2920,6 +2933,11 @@ class OpenXrProbe {
               static_cast<const std::uint8_t*>(mapped_pixels);
           std::vector<std::uint8_t> row(
               static_cast<std::size_t>(eye_description.Width) * 3);
+          // The alpha the runtime composites with, which the PPM cannot
+          // show: among pixels with colour, how many are transparent, opaque
+          // or between (8 October: SteamVR showed nothing where the PPM
+          // showed the whole board).
+          std::uint64_t coloured{}, alpha_zero{}, alpha_full{}, alpha_partial{};
           for (std::uint32_t y = 0; y < eye_description.Height; ++y) {
             const auto* source_row = pixels +
                 static_cast<std::size_t>(y) *
@@ -2932,6 +2950,12 @@ class OpenXrProbe {
               destination[0] = source[0];
               destination[1] = source[1];
               destination[2] = source[2];
+              if (source[0] | source[1] | source[2]) {
+                ++coloured;
+                if (source[3] == 0) ++alpha_zero;
+                else if (source[3] == 255) ++alpha_full;
+                else ++alpha_partial;
+              }
             }
             diagnostic.write(
                 reinterpret_cast<const char*>(row.data()),
@@ -2939,7 +2963,9 @@ class OpenXrProbe {
           }
           projected_eye_readbacks[eye]->Unmap(0, nullptr);
           std::cout << "openxr.projected_eye_readback="
-                    << diagnostic_path.string() << '\n';
+                    << diagnostic_path.string() << " coloured=" << coloured
+                    << " alpha_zero=" << alpha_zero << " alpha_full=" << alpha_full
+                    << " alpha_partial=" << alpha_partial << std::endl;
         }
         projected_eye_readback_requested = false;
       };
@@ -5442,8 +5468,12 @@ class OpenXrProbe {
           view.subImage.imageRect = board_rect;
           view.subImage.imageArrayIndex = 0;
         }
+        // darktidevr_board_opaque.flag (on) submits the board layer without
+        // alpha blending: everything outside the board shows black instead
+        // of the world, but a runtime that drops or zeroes the layer's alpha
+        // can no longer hide the board (the 8 October SteamVR diagnosis).
         board_projection.layerFlags =
-            XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+            board_opaque_requested ? 0 : XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
         board_projection.space = local_space_;
         board_projection.viewCount =
             static_cast<std::uint32_t>(board_projection_views.size());
