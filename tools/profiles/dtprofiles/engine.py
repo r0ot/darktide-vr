@@ -448,6 +448,13 @@ class Manager:
                 notes.append(f"profile {active}: {component} {change}, recorded")
         # Contents: updated, added or removed files are taken as they are.
         for component, entries in present.items():
+            # A VR mod imported since the last switch replaces the game's copy:
+            # the import is the newer intent, not something to overwrite with
+            # what was installed before it.
+            imported = components.get(component, {}).get("imported")
+            if component == "vr" and imported and imported != state.get("vr_imported"):
+                notes.append("vr: the newly imported VR mod replaces the installed one")
+                continue
             files = {key: {"relative": e.relative, "sha256": self.vault.put_file(
                          self.root / e.relative, expected=e.sha256), "size": e.size}
                      for key, e in entries.items()}
@@ -762,6 +769,7 @@ class Manager:
         state = self.state() or {}
         new_state = {"profile": name,
                      "settings_slot": self.profile(name).get("settings_slot", "2d"),
+                     "vr_imported": self.library()["components"].get("vr", {}).get("imported"),
                      "applied": self._after(have, plan),
                      "buildid": self.installation.buildid, "since": now(),
                      "previous": state.get("profile")}
@@ -830,6 +838,7 @@ class Manager:
             raise ProfileError("cancelled")
         new_state = {"profile": document.get("active_profile") or "2d",
                      "settings_slot": document.get("settings_slot") or "2d",
+                     "vr_imported": self.library()["components"].get("vr", {}).get("imported"),
                      "applied": self._after(have, plan),
                      "buildid": self.installation.buildid, "since": now(),
                      "restored_capture": capture_id}
@@ -880,6 +889,7 @@ class Manager:
             library.setdefault("history", []).append(
                 {"component": "vr", "files": old["files"], "replaced": now()})
         library["components"]["vr"] = {"files": files, "updated": now(),
-                                       "source": str(package)}
+                                       "source": str(package),
+                                       "imported": f"{now()}#{uuid.uuid4().hex[:8]}"}
         self.save_library(library)
         return len(files)

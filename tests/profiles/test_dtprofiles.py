@@ -427,6 +427,21 @@ class ProfilesTest(unittest.TestCase):
         self.manager.switch("vr")                        # entering VR: the viewer's job
         self.assertEqual(calls, [1])
 
+    def test_a_vr_import_while_vr_is_active_is_installed_not_overwritten(self):
+        self.init()
+        self.manager.import_vr(self.fixture.vr_package())
+        self.manager.switch("vr")
+        package = self.fixture.vr_package()
+        (package / "mods" / "darktidevr" / "scripts" / "vr.lua").write_bytes(b"vr v2")
+        self.manager.import_vr(package)
+        self.manager.switch("vr")
+        self.assertEqual(self.fixture.read("mods/darktidevr/scripts/vr.lua"), b"vr v2")
+        # ...and a change made in the game after that is absorbed as usual.
+        self.fixture.write("mods/darktidevr/darktidevr_refresh_rate.flag", b"120")
+        self.manager.switch("2d")
+        self.manager.switch("vr")
+        self.assertEqual(self.fixture.read("mods/darktidevr/darktidevr_refresh_rate.flag"), b"120")
+
     def test_steam_updating_blocks_a_switch(self):
         self.init()
         self.manager.installation.state_flags = 6

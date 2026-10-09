@@ -609,10 +609,20 @@ function controller_aim.install(mod, presentation, state)
     for index = 4, 5 do
         -- Flame damage and suppression query the camera directly, independently
         -- of the prepared shot. Both must consume the same hand-authored pose.
+        -- Since the 7 October 2026 update the flamers suppress through
+        -- FlamerAction.suppress_targets, called from _shoot with the rotation
+        -- of the prepared shot, which the _prepare_shooting hook above already
+        -- authors; _acquire_suppressed_units is gone. Hook what exists, so
+        -- either build loads without an error.
         for _, method in ipairs({"_acquire_targets", "_acquire_suppressed_units"}) do
-            mod:hook(ranged_classes[index], method, function(func, self, ...)
-                return controller_aim.with_ranged_pose(self, func, ...)
-            end)
+            if ranged_classes[index][method] then
+                mod:hook(ranged_classes[index], method, function(func, self, ...)
+                    return controller_aim.with_ranged_pose(self, func, ...)
+                end)
+            else
+                mod:info("DARKTIDEVR_WEAPON_AIM flamer_hook_skipped class=%s method=%s",
+                    tostring(ranged_classes[index].__class_name), method)
+            end
         end
     end
 
