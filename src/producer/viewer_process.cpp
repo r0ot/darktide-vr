@@ -3,8 +3,10 @@
 #include <Windows.h>
 
 #include <array>
+#include <cwctype>
 #include <mutex>
 #include <string>
+#include <vector>
 
 namespace darktidevr::producer::viewer {
 namespace {
@@ -65,6 +67,32 @@ std::wstring output_directory() {
   directory += L"\\DarktideVR\\";
   CreateDirectoryW(directory.c_str(), nullptr);
   return directory;
+}
+
+// The game's environment without the variables that make Steam treat a child
+// as the game itself. Inheriting SteamAppId/SteamGameId put the viewer under
+// SteamVR's app key "steam.app.1361210" -- the flat Darktide Steam shows in its
+// theatre -- and SteamVR never displayed the viewer's frames, even an opaque
+// layer, while a viewer started outside the game was displayed normally; Steam
+// also injected its overlay into the viewer (8-9 October, Steam Frame).
+std::vector<wchar_t> viewer_environment() {
+  constexpr std::array<const wchar_t*, 4> removed{
+      L"steamappid", L"steamgameid", L"steamoverlaygameid", L"steamclientlaunch"};
+  std::vector<wchar_t> block;
+  const auto strings = GetEnvironmentStringsW();
+  if (!strings) return block;
+  for (auto entry = strings; *entry; entry += wcslen(entry) + 1) {
+    std::wstring name(entry, wcscspn(entry, L"="));
+    if (name.empty()) name = entry;  // "=C:=C:\..." drive entries keep
+    for (auto& c : name) c = static_cast<wchar_t>(std::towlower(c));
+    bool skip = false;
+    for (const auto* candidate : removed) skip = skip || name == candidate;
+    if (skip) continue;
+    block.insert(block.end(), entry, entry + wcslen(entry) + 1);
+  }
+  FreeEnvironmentStringsW(strings);
+  block.push_back(L'\0');
+  return block;
 }
 
 // Reaps a finished child so state() reports the exit instead of a stale run.
@@ -151,9 +179,11 @@ int start_locked(ViewerState& state) {
   startup.hStdError = state.log;
   startup.hStdInput = nullptr;
   PROCESS_INFORMATION information{};
+  auto environment = viewer_environment();
   const auto created = CreateProcessW(
       executable.c_str(), command.data(), nullptr, nullptr, TRUE,
-      CREATE_NO_WINDOW | CREATE_SUSPENDED, nullptr,
+      CREATE_NO_WINDOW | CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT,
+      environment.empty() ? nullptr : environment.data(),
       module_directory().c_str(), &startup, &information);
   if (!created) {
     state.last_error = GetLastError();

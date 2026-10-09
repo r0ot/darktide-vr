@@ -173,6 +173,11 @@ class Fixture:
 
 class ProfilesTest(unittest.TestCase):
     def setUp(self):
+        # The fixture's game is never running; the real one may be (the owner
+        # plays while these run), and the check looks for any Darktide.exe.
+        self._running = engine.running_game_processes
+        engine.running_game_processes = lambda root: []
+        self.addCleanup(setattr, engine, "running_game_processes", self._running)
         self.temporary = Path(tempfile.mkdtemp(prefix="dtprofiles-test-"))
         self.fixture = Fixture(self.temporary)
         self.manager = self.fixture.manager()
@@ -441,6 +446,14 @@ class ProfilesTest(unittest.TestCase):
         self.manager.switch("2d")
         self.manager.switch("vr")
         self.assertEqual(self.fixture.read("mods/darktidevr/darktidevr_refresh_rate.flag"), b"120")
+
+    def test_a_running_game_blocks_a_switch(self):
+        self.init()
+        engine.running_game_processes = lambda root: [r"C:\game\Darktide.exe"]
+        before = self.fixture.snapshot()
+        with self.assertRaises(ProfileError):
+            self.manager.switch("vanilla")
+        self.assertEqual(self.fixture.snapshot(), before)
 
     def test_steam_updating_blocks_a_switch(self):
         self.init()
