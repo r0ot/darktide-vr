@@ -1254,7 +1254,12 @@ class OpenXrProbe {
             destination[x * 4] = source[x * 4 + 2];
             destination[x * 4 + 1] = source[x * 4 + 1];
             destination[x * 4 + 2] = source[x * 4];
-            destination[x * 4 + 3] = source[x * 4 + 3];
+            // A captured window is opaque. GDI leaves the alpha byte of a
+            // PrintWindow capture undefined (commonly 0), and the board goes to
+            // the runtime as an alpha-blended layer: Virtual Desktop showed it
+            // regardless, SteamVR showed nothing at all while 3,977 captures
+            // were uploaded and submitted (8 October, Steam Frame).
+            destination[x * 4 + 3] = std::byte{0xFF};
           }
         }
         return std::shared_ptr<const CapturePixels>(std::move(converted));
@@ -7530,7 +7535,9 @@ int run_steamvr_settings_guard(DWORD pid) {
       std::fflush(log);
     }
   };
+  say("guard=started self=" + std::to_string(GetCurrentProcessId()));
   const auto process = OpenProcess(SYNCHRONIZE, FALSE, pid);
+  if (!process) say("guard=open_failed error=" + std::to_string(GetLastError()));
   if (process) {
     say("guard=waiting");
     WaitForSingleObject(process, INFINITE);
@@ -7746,7 +7753,8 @@ class SteamVrSessionSettings {
     }
     std::cout << "steamvr_settings.guard="
               << (created ? (outside_job ? "started" : "started_inside_job") : "failed")
-              << '\n';
+              << " pid=" << (created ? information.dwProcessId : 0)
+              << " error=" << (created ? 0 : GetLastError()) << std::endl;
     if (created) {
       CloseHandle(information.hThread);
       CloseHandle(information.hProcess);
