@@ -562,3 +562,51 @@ Findings that hold regardless of the outcome:
 **Next launch:** SteamVR running first, the theatre setting off, `switch vr`,
 Play. Read `vrserver.txt` for the viewer's app key (`system.generated...` is
 the fix working), and whether the board shows.
+
+## Launch 8 and the cause: the d3d12.dll proxy in the viewer (9 October)
+
+Launch 8 (with `2eec2ce`) separated the identities: the SteamVR overlay
+listed "Darktide VR Harness" as its own app beside the flat game, and
+"Resume game" gave it focus. The headset still showed the empty world.
+
+**Measuring it without the headset.** The OpenVR compositor reports the
+process whose frame it last displayed (`IVRCompositor::GetLastFrameRenderer`)
+and can dump what it composites (`CompositorDumpImages`, into
+`SteamVR\screenshots`). `tools/stereo/probe-steamvr-compositor.py` polls the
+first through SteamVR's own `openvr_api.dll` as a background app. With the
+headset unworn a session stays SYNCHRONIZED and submits one frame, but one is
+enough: an accepted viewer becomes the last renderer within a second.
+
+The viewer was run with the game's own arguments (from `vrserver.txt`) and a
+stand-in window titled "Warhammer 40,000: Darktide" owned by its parent:
+
+| viewer | last renderer |
+|---|---|
+| installed copy, `mods\darktidevr\bin` | 0 (never) |
+| the build's copy, same arguments and every settings flag | the viewer |
+| copy of the installed folder | 0 |
+| same copy with only `bin\d3d12.dll` removed | the viewer |
+
+**Cause.** The package installs the viewer beside the mod's `d3d12.dll`
+proxy (the profile tool copies it from there to `binaries\`). `d3d12.dll` is
+not a known DLL, so the viewer's import loaded the proxy from its own
+directory, and so did SteamVR's OpenXR runtime inside the viewer when it
+shared the swapchains with its compositor. The proxy forwards only the eight
+public exports. Every `xrEndFrame` succeeded and SteamVR displayed none of
+them, which is launches 2, 3, 6, 7 and 8. Earlier runtimes (Virtual Desktop)
+evidently never asked the proxy for more. The probes that worked ran from the
+build directory, where there is no proxy.
+
+**Fix (`8be28ac`).** The viewer delay-loads `d3d12.dll` and loads System32's
+copy first thing in `wmain`; later loads by name return that module. It logs
+`viewer.d3d12 loaded=1 system32=1 proxy_beside=1`. The installed copy beside
+the proxy is now the last renderer within a second. The suite passes 285 of
+285. Untested worn.
+
+- The compositor dumps a 32x16 placeholder (`-raw.png`) whenever an app owns
+  the scene, so the image dump cannot show the board; the last-renderer
+  number is the measure. With no scene app it dumps the world (`-Layer.png`).
+- A VR launch leaves about 1,700 diagnostic shader dumps in
+  `mods\darktidevr\bin\billboard_pixel_shaders` and `blended_pixel_shaders`
+  (written by the native module, never read back). The profile tool counts
+  them as VR files and removes them on the next switch.
