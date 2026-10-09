@@ -3593,6 +3593,16 @@ class OpenXrProbe {
                   anchored.position.x, anchored.position.y,
                   anchored.position.z};
               flat_fallback_pose_valid = true;
+              // Where the board went, against the head it was seated from:
+              // a board seated while the headset sat on a desk is metres from
+              // where the wearer later looks (8 October, never seen worn).
+              std::cout << "openxr.board_seat world_anchored=" << (world_anchored ? 1 : 0)
+                        << " head=" << current_head.position.x << ','
+                        << current_head.position.y << ',' << current_head.position.z
+                        << " board=" << anchored.position.x << ','
+                        << anchored.position.y << ',' << anchored.position.z
+                        << " reanchor=" << (flat_reanchor ? 1 : 0)
+                        << " transitions=" << flat_fallback_transitions << std::endl;
               if (presentation_sequence != 0) {
                 flat_fallback_anchor_state = presentation_state;
               } else {

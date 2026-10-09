@@ -1,6 +1,8 @@
 #include "window_capture.h"
 #include "windows_dpi_scope.h"
 
+#include <TlHelp32.h>
+
 #include <algorithm>
 #include <cwctype>
 #include <iostream>
@@ -40,6 +42,26 @@ BOOL CALLBACK find_window(HWND window, LPARAM parameter) {
   return TRUE;
 }
 
+// The process that started this one: the game, when its native module
+// starts the viewer. Zero when it cannot be found.
+DWORD parent_process_id() {
+  const auto snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+  if (snapshot == INVALID_HANDLE_VALUE) return 0;
+  PROCESSENTRY32W entry{};
+  entry.dwSize = sizeof(entry);
+  DWORD parent = 0;
+  const auto self = GetCurrentProcessId();
+  for (auto more = Process32FirstW(snapshot, &entry); more;
+       more = Process32NextW(snapshot, &entry)) {
+    if (entry.th32ProcessID == self) {
+      parent = entry.th32ParentProcessID;
+      break;
+    }
+  }
+  CloseHandle(snapshot);
+  return parent;
+}
+
 }  // namespace
 
 WindowCapture::WindowCapture(std::wstring title_substring,
@@ -52,6 +74,19 @@ WindowCapture::WindowCapture(std::wstring title_substring,
   SearchContext context{lowercase(std::move(title_substring)), {}};
   if (!EnumWindows(find_window, reinterpret_cast<LPARAM>(&context))) {
     throw std::runtime_error("EnumWindows failed during capture selection");
+  }
+  // A window of the process that started this viewer is the one meant: Steam
+  // titles its own dialogs after the game (its Properties window is
+  // "Warhammer 40,000: Darktide" too), and on 8 October one left open made
+  // every viewer start fail and the mod restart it every ten seconds.
+  if (const auto parent = parent_process_id(); parent != 0) {
+    std::vector<HWND> owned;
+    for (const auto window : context.matches) {
+      DWORD owner{};
+      GetWindowThreadProcessId(window, &owner);
+      if (owner == parent) owned.push_back(window);
+    }
+    if (!owned.empty()) context.matches = std::move(owned);
   }
   if (context.matches.size() > 1) {
     std::vector<HWND> exact_matches;
