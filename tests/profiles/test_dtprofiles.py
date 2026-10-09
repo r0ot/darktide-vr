@@ -318,11 +318,11 @@ class ProfilesTest(unittest.TestCase):
         real_write = self.manager._write
         calls = {"n": 0}
 
-        def crash(relative, digest):
+        def crash(relative, digest, readonly=None):
             calls["n"] += 1
             if calls["n"] == 4:
                 raise KeyboardInterrupt  # the process dies here
-            return real_write(relative, digest)
+            return real_write(relative, digest, readonly)
         self.manager._write = crash
         self.manager.rollback = lambda journal: None  # ...and never got to roll back
         with self.assertRaises(KeyboardInterrupt):
@@ -370,6 +370,45 @@ class ProfilesTest(unittest.TestCase):
         self.assertEqual(self.fixture.read("bundle/bundle_database.data"), VANILLA_DB_V2)
         self.assertEqual(self.fixture.read("binaries/Darktide.exe"), VANILLA_EXE_V2)
         self.assertEqual(self.fixture.read("mods/Alpha/Alpha.mod"), b"alpha v1")
+
+    def test_read_only_files_switch_out_and_come_back_read_only(self):
+        # Power_DI ships its .git folder; git marks object files read-only and
+        # Windows refuses to delete them (the first real round trip failed on
+        # one, 8 October).
+        obj = self.fixture.game / "mods" / "Beta" / ".git" / "objects" / "00" / "abcdef"
+        obj.parent.mkdir(parents=True)
+        obj.write_bytes(b"git object")
+        os.chmod(obj, 0o444)
+        self.init()
+        self.manager.switch("2d")
+        before = self.fixture.snapshot()
+        self.manager.switch("vanilla")
+        self.assertFalse(obj.exists())
+        self.manager.switch("2d")
+        self.assertEqual(self.fixture.snapshot(), before)
+        self.assertFalse(os.access(obj, os.W_OK), "the object came back writable")
+
+    def test_a_rollback_can_be_repeated(self):
+        self.init()
+        self.manager.switch("2d")
+        before = self.fixture.snapshot()
+        real_write = self.manager._write
+        calls = {"n": 0}
+
+        def crash(relative, digest, readonly=None):
+            calls["n"] += 1
+            if calls["n"] == 3:
+                raise KeyboardInterrupt
+            return real_write(relative, digest, readonly)
+        self.manager._write = crash
+        self.manager.rollback = lambda journal: None
+        with self.assertRaises(KeyboardInterrupt):
+            self.manager.switch("vanilla")
+        fresh = self.fixture.manager()
+        journal = read_json(next(fresh.vault.journal.glob("*.json")))
+        self.assertEqual(fresh.rollback(dict(journal)), [])
+        self.assertEqual(fresh.rollback(dict(journal)), [])    # again: nothing to redo
+        self.assertEqual(self.fixture.snapshot(), before)
 
     def test_steam_updating_blocks_a_switch(self):
         self.init()

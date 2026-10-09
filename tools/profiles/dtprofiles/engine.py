@@ -24,6 +24,7 @@ import ctypes
 import datetime as _dt
 import os
 import shutil
+import stat
 import subprocess
 import uuid
 from ctypes import wintypes
@@ -147,6 +148,8 @@ class Plan:
     removes: dict[str, str] = field(default_factory=dict)              # key -> relative
     settings: tuple[str, str | None] | None = None                     # (slot, sha or None)
     notes: list[str] = field(default_factory=list)
+    readonly: set[str] = field(default_factory=set)          # keys to leave read-only
+    readonly_before: set[str] = field(default_factory=set)   # keys read-only now
 
     @property
     def empty(self) -> bool:
@@ -329,6 +332,8 @@ class Manager:
             files[entry.key] = {"relative": entry.relative, "sha256": digest,
                                 "size": entry.size, "status": entry.status,
                                 "component": component_of(entry.key, entry.relative)}
+            if entry.readonly:
+                files[entry.key]["readonly"] = True
         for key in (BUNDLE_DATABASE, GAME_EXECUTABLE):
             if key not in files:
                 entry = game.files[key]
@@ -377,6 +382,8 @@ class Manager:
                 continue
             library["components"].setdefault(component, {"files": {}})["files"][key] = {
                 "relative": item["relative"], "sha256": item["sha256"], "size": item["size"]}
+            if item.get("readonly"):
+                library["components"][component]["files"][key]["readonly"] = True
             if component.startswith("mod:"):
                 mods.add(component[4:])
         for component in library["components"].values():
@@ -440,6 +447,9 @@ class Manager:
             files = {key: {"relative": e.relative, "sha256": self.vault.put_file(
                          self.root / e.relative, expected=e.sha256), "size": e.size}
                      for key, e in entries.items()}
+            for key, e in entries.items():
+                if e.readonly:
+                    files[key]["readonly"] = True
             old = components.get(component, {}).get("files")
             if old != files:
                 if old is not None:
@@ -482,6 +492,7 @@ class Manager:
         library = self.library()["components"]
         want: dict[str, tuple[str, str]] = {}
         notes: list[str] = []
+        self._want_readonly: set[str] = set()
 
         def add_component(name: str) -> dict:
             component = library.get(name)
@@ -489,6 +500,8 @@ class Manager:
                 raise ProfileError(f"the vault has no {name!r} (see: list)")
             for key, item in component["files"].items():
                 want[key] = (item["relative"], item["sha256"])
+                if item.get("readonly"):
+                    self._want_readonly.add(key)
             return component["files"]
 
         vanilla_database = self.vanilla_blob(BUNDLE_DATABASE)
@@ -523,8 +536,12 @@ class Manager:
         want, notes = self.desired(profile)
         have = self.managed_current(game)
         plan = Plan(profile=name, notes=notes)
+        plan.readonly = set(self._want_readonly)
+        readonly_now = {e.key for e in game.files.values() if e.readonly}
+        plan.readonly_before = readonly_now
         for key, (relative, digest) in want.items():
-            if have.get(key, (None, None))[1] != digest:
+            if have.get(key, (None, None))[1] != digest or \
+                    ((key in plan.readonly) != (key in readonly_now)):
                 plan.writes[key] = (have.get(key, (relative,))[0] if key in have else relative,
                                     digest)
         for key, (relative, _) in have.items():
@@ -547,13 +564,26 @@ class Manager:
 
     # --- applying ---------------------------------------------------------------
 
-    def _write(self, relative: str, digest: str | None) -> None:
+    def _write(self, relative: str, digest: str | None, readonly: bool | None = None) -> None:
+        """Make `relative` hold `digest` (None: absent), then set its
+        read-only attribute if `readonly` is given. Already right is left
+        alone, so a rollback or a recovery can be repeated."""
         path = self.root / relative
+
+        def make_writable():
+            if path.exists() and not os.access(path, os.W_OK):
+                os.chmod(path, stat.S_IWRITE | stat.S_IREAD)
+
         if digest is None:
             if path.exists():
+                make_writable()
                 path.unlink()
-        else:
+            return
+        if not (path.is_file() and sha256_file(path) == digest):
+            make_writable()
             self.vault.copy_out(digest, path)
+        if readonly is not None and readonly != (not os.access(path, os.W_OK)):
+            os.chmod(path, stat.S_IREAD if readonly else stat.S_IWRITE | stat.S_IREAD)
 
     def _remove_empty_directories(self, relatives) -> None:
         for relative in sorted(relatives, key=lambda r: -r.count("\\")):
@@ -576,10 +606,13 @@ class Manager:
         operations = []
         for key, (relative, digest) in plan.writes.items():
             operations.append({"key": key, "relative": relative,
-                               "before": have.get(key, (None, None))[1], "after": digest})
+                               "before": have.get(key, (None, None))[1], "after": digest,
+                               "before_readonly": key in plan.readonly_before,
+                               "after_readonly": key in plan.readonly})
         for key, relative in plan.removes.items():
             operations.append({"key": key, "relative": relative,
-                               "before": have[key][1], "after": None})
+                               "before": have[key][1], "after": None,
+                               "before_readonly": key in plan.readonly_before})
         for operation in operations:
             before = operation["before"]
             if before and not self.vault.has(before):
@@ -600,7 +633,8 @@ class Manager:
         done = []
         try:
             for operation in operations:
-                self._write(operation["relative"], operation["after"])
+                self._write(operation["relative"], operation["after"],
+                            operation.get("after_readonly"))
                 done.append(operation)
             self._remove_empty_directories(op["relative"] for op in operations
                                            if op["after"] is None)
@@ -630,7 +664,8 @@ class Manager:
         problems = []
         for operation in reversed(journal["operations"]):
             try:
-                self._write(operation["relative"], operation["before"])
+                self._write(operation["relative"], operation["before"],
+                            operation.get("before_readonly"))
             except Exception as error:  # keep going: restore as much as possible
                 problems.append(f"{operation['relative']}: {error}")
         settings = journal.get("settings")
@@ -720,6 +755,8 @@ class Manager:
         want = {key: (item["relative"], item["sha256"]) for key, item in document["files"].items()
                 if item["component"] is not None and item["status"] != "generated"}
         plan = Plan(profile=f"capture:{capture_id}")
+        plan.readonly = {key for key, item in document["files"].items() if item.get("readonly")}
+        plan.readonly_before = {e.key for e in game.files.values() if e.readonly}
         if document["buildid"] != self.installation.buildid:
             # Never put another build's database or executable over this one.
             database_patched = document.get("bundle_database_patched")
@@ -737,7 +774,8 @@ class Manager:
                               f"{self.installation.buildid}: the bundle database and executable "
                               "follow this build")
         for key, (relative, digest) in want.items():
-            if have.get(key, (None, None))[1] != digest:
+            if have.get(key, (None, None))[1] != digest or \
+                    ((key in plan.readonly) != (key in plan.readonly_before)):
                 plan.writes[key] = (have[key][0] if key in have else relative, digest)
         for key, (relative, _) in have.items():
             if key not in want:

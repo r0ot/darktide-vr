@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import re
+import stat
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -70,6 +71,9 @@ class FileEntry:
     size: int
     status: str       # vanilla | modified | extra | generated
     sha256: str | None = None
+    # The Windows read-only attribute: git marks its object files read-only,
+    # and a mod that ships its .git folder (Power_DI does) has them.
+    readonly: bool = False
 
 
 @dataclass
@@ -125,7 +129,8 @@ def scan_game(root: Path, vanilla: VanillaIndex, full: bool = False,
             relative = os.path.relpath(path, root)
             key = normalize(relative)
             seen.add(key)
-            size = path.stat().st_size
+            info = path.stat()
+            size = info.st_size
             expected = vanilla.files.get(key)
             if GENERATED.search(key):
                 status = "generated"
@@ -137,7 +142,9 @@ def scan_game(root: Path, vanilla: VanillaIndex, full: bool = False,
                 status = "vanilla" if sha1_file(path) == expected.sha1 else "modified"
             else:
                 status = "vanilla"
-            entry = FileEntry(key=key, relative=relative, size=size, status=status)
+            entry = FileEntry(key=key, relative=relative, size=size, status=status,
+                              readonly=bool(info.st_file_attributes &
+                                            stat.FILE_ATTRIBUTE_READONLY))
             if hash_changed and status in ("modified", "extra"):
                 entry.sha256 = sha256_file(path)
             scan.files[key] = entry

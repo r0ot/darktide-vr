@@ -117,6 +117,27 @@ next switch absorbs it.
 - The tool does not install or update mods or the loader: install them the
   usual way while a profile is active, and the next switch takes them in.
 
+## On the real install (8 October)
+
+- `init`: 617 files and both settings files captured in 14 s; 62 MB vault.
+- `switch 2d`: the bundle database re-patched after the 7 October update
+  (byte-identical to what `toggle_darktide_mods.bat` produces) and the `.bak`
+  replaced with this build's vanilla database. The owner played: "ran
+  perfect, just as I'd expect with all my mods".
+- **The first round trip failed safely.** `Power_DI` ships its `.git` folder,
+  git marks object files read-only, and Windows refused to delete one. The
+  switch rolled back, but the rollback then tried to rewrite read-only files
+  it had never removed and reported itself incomplete, leaving the journal;
+  the game itself was unchanged. Fixed: writes clear and restore the
+  read-only attribute (recorded per file, so `.git` objects come back
+  read-only), and a write that would change nothing is skipped, so a rollback
+  or `recover` can be repeated. `recover` then completed.
+- The round trip `2d` -> `vanilla` -> `2d`, after the fix, in 37 s: in
+  vanilla the only non-vanilla file was the owner's note, the database and
+  executable matched Steam's SHA-1 and nothing vanilla was missing; back in
+  2d all 617 managed files and `user_settings.config` were byte-identical to
+  before, and Power_DI's 100 read-only `.git` objects were read-only again.
+
 ## Validation
 
 `tests/profiles/test_dtprofiles.py` (CTest `game_profiles`) builds a fake Steam
@@ -127,4 +148,5 @@ slots and incremental mods; an unsupported executable patch stopping before
 any change; a failed write rolling everything back; a crash mid-switch blocked
 until `recover` restores it; the loader appearing by hand being refused;
 `restore-capture` being exact; a game update between switches (new database
-patched, the old build's never restored); Steam updating blocking a switch.
+patched, the old build's never restored); Steam updating blocking a switch;
+read-only files switched out and back read-only; a rollback repeated.
