@@ -168,6 +168,10 @@ class Manager:
         self.tools = tools or Tools(loader_patch=run_dtkit_patch(installation.game_root),
                                     vr_exe_patch=run_vr_exe_patch)
         self.log = log
+        # Where the VR viewer keeps the user's SteamVR values while a session
+        # holds them (src/xr/main.cpp, steamvr_session_backup_path).
+        self.steamvr_backup = Path(os.environ.get("LOCALAPPDATA", "")) / "DarktideVR" / \
+            "steamvr-session-backup.txt"
         vault.ensure()
 
     # --- vault documents ----------------------------------------------------
@@ -705,15 +709,51 @@ class Manager:
 
     # --- the commands ---------------------------------------------------------
 
+    def restore_steamvr_settings(self) -> str | None:
+        """If a VR session left SteamVR's refresh rate or motion smoothing
+        changed (its backup is still there), put the user's values back with
+        the VR mod's own viewer, run from the vault. None when nothing was
+        held; otherwise one line for the plan's notes."""
+        backup = self.steamvr_backup
+        if not backup.is_file():
+            return None
+        files = self.library()["components"].get("vr", {}).get("files", {})
+        viewer = files.get(f"mods\\{VR_MOD}\\bin\\darktidevr-xr-harness.exe")
+        loader = files.get(f"mods\\{VR_MOD}\\bin\\openxr_loader.dll")
+        if not viewer or not loader:
+            return "SteamVR settings are still changed by a VR session (no stored viewer to restore them)"
+        stage = self.vault.staging / f"restore-{uuid.uuid4().hex}"
+        try:
+            stage.mkdir(parents=True)
+            self.vault.copy_out(viewer["sha256"], stage / "darktidevr-xr-harness.exe")
+            self.vault.copy_out(loader["sha256"], stage / "openxr_loader.dll")
+            result = subprocess.run([str(stage / "darktidevr-xr-harness.exe"),
+                                     "--steamvr-settings", "restore"],
+                                    capture_output=True, text=True, timeout=60,
+                                    stdin=subprocess.DEVNULL)
+        finally:
+            shutil.rmtree(stage, ignore_errors=True)
+        line = (result.stdout.strip().splitlines() or [""])[-1]
+        if result.returncode == 0:
+            return f"SteamVR settings put back from the last VR session ({line})"
+        return ("SteamVR settings are still changed by a VR session and could not be put "
+                f"back now ({line or result.stderr.strip()}); start SteamVR and switch again, "
+                "or launch VR once")
+
     def switch(self, name: str, allow_structure: bool = False, dry_run: bool = False,
                confirm=None) -> tuple[Plan, list[str]]:
         self.guard()
         self.profile(name)
+        steamvr_note = None
+        if not dry_run and not self.profile(name).get("vr"):
+            # A VR session killed with the game cannot restore SteamVR itself;
+            # leaving VR for 2D is the moment the user would notice.
+            steamvr_note = self.restore_steamvr_settings()
         game = self.scan()
         # A dry run must not change the vault's view of the profile either.
         notes = [] if dry_run else self.absorb(game, allow_structure=allow_structure)
         plan = self.plan(name, game)
-        plan.notes[:0] = notes
+        plan.notes[:0] = notes + ([steamvr_note] if steamvr_note else [])
         if dry_run:
             return plan, []
         if confirm is not None and not plan.empty and not confirm(plan):

@@ -164,8 +164,13 @@ int start_locked(ViewerState& state) {
   state.job = CreateJobObjectW(nullptr, nullptr);
   if (state.job) {
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
+    // Breakaway is allowed for one purpose: the viewer's SteamVR settings
+    // guard, which must outlive this job to put the user's refresh rate back
+    // when the game ends and the job kills the viewer (8 October: the first
+    // Frame session left SteamVR at 90 Hz). Children not started with
+    // CREATE_BREAKAWAY_FROM_JOB stay in the job as before.
     limits.BasicLimitInformation.LimitFlags =
-        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_BREAKAWAY_OK;
     if (!SetInformationJobObject(state.job, JobObjectExtendedLimitInformation,
                                  &limits, sizeof(limits)) ||
         !AssignProcessToJobObject(state.job, information.hProcess)) {

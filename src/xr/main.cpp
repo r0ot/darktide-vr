@@ -2060,7 +2060,7 @@ class OpenXrProbe {
       if (stop_file && std::chrono::steady_clock::now() >= next_stop_file_poll) {
         next_stop_file_poll = std::chrono::steady_clock::now() + std::chrono::milliseconds(250);
         if (GetFileAttributesW(stop_file->c_str()) != INVALID_FILE_ATTRIBUTES) {
-          std::cout << "openxr.stop_file=requested\n";
+          std::cout << "openxr.stop_file=requested" << std::endl;
           break;
         }
       }
@@ -2090,7 +2090,7 @@ class OpenXrProbe {
           }
           if (stop_file &&
               GetFileAttributesW(stop_file->c_str()) != INVALID_FILE_ATTRIBUTES) {
-            std::cout << "openxr.stop_file=requested\n";
+            std::cout << "openxr.stop_file=requested" << std::endl;
             break;
           }
           if (window_capture && !window_capture->source_window_alive()) {
@@ -5671,6 +5671,22 @@ class OpenXrProbe {
                   << last_pair_pose_checked_ready_value
                   << " rendered_tag_ready="
                   << rendered_pair_pose_ready_value
+                  // The window capture behind every flat board, live: a
+                  // board frozen on one image (8 October) is either captures
+                  // failing (failures, last error) or captures never
+                  // uploaded (attempts rising, updates not).
+                  << " capture_attempts=" << capture_attempts.load(std::memory_order_relaxed)
+                  << " capture_updates=" << capture_updates
+                  << " capture_stale_frames=" << capture_stale_frames
+                  << " capture_failures=" << capture_failures_total.load(std::memory_order_relaxed)
+                  << " capture_requested=" << (capture_requested ? 1 : 0)
+                  << " capture_worker=" << (capture_worker ? 1 : 0)
+                  << " capture_error=" << [&] {
+                       const auto error = capture_error.load(std::memory_order_acquire);
+                       std::string text = error ? *error : std::string("none");
+                       for (auto& c : text) if (c == ' ' || c == '\t') c = '_';
+                       return text;
+                     }()
                   << std::endl;
         delivery_cadence.reset_window();
         if(generated_surfaces) {
@@ -7495,12 +7511,68 @@ void print_steamvr_session_result(
 // Runs in a child of the viewer, before its session and after it, so OpenVR
 // and the OpenXR runtime are never loaded into one process. Also the manual
 // way to put the user's SteamVR settings back after a crash.
+// --steamvr-settings guard --pid N: wait for process N (the viewer) to end,
+// however it ends, then restore. Started outside the game's job, so the
+// game's exit killing the viewer does not kill this; restoring with no backup
+// is a no-op, so the viewer's own restore and this one never conflict.
+int run_steamvr_settings_guard(DWORD pid) {
+  const auto log_path = steamvr_session_backup_path().parent_path() /
+                        L"steamvr-settings-guard.log";
+  FILE* log{};
+  if (_wfopen_s(&log, log_path.c_str(), L"a") != 0) log = nullptr;
+  const auto say = [&](const std::string& line) {
+    if (log) {
+      SYSTEMTIME now{};
+      GetLocalTime(&now);
+      std::fprintf(log, "%04u-%02u-%02u %02u:%02u:%02u pid=%lu %s\n", now.wYear,
+                   now.wMonth, now.wDay, now.wHour, now.wMinute, now.wSecond,
+                   static_cast<unsigned long>(pid), line.c_str());
+      std::fflush(log);
+    }
+  };
+  const auto process = OpenProcess(SYNCHRONIZE, FALSE, pid);
+  if (process) {
+    say("guard=waiting");
+    WaitForSingleObject(process, INFINITE);
+    CloseHandle(process);
+  }
+  say("guard=viewer_ended");
+  const auto backup = steamvr_session_backup_path();
+  std::error_code error;
+  if (backup.empty() || !std::filesystem::exists(backup, error)) {
+    say("guard=nothing_to_restore");
+    if (log) std::fclose(log);
+    return 0;
+  }
+  std::string failure;
+  const auto store = darktidevr::xr::OpenVrSettingsStore::connect(&failure);
+  if (!store) {
+    // SteamVR closed with the game: the backup stays and the next viewer
+    // restores it first (or `--steamvr-settings restore` by hand).
+    say("guard=restore_deferred detail=" + failure);
+    if (log) std::fclose(log);
+    return 1;
+  }
+  const auto result = darktidevr::core::restore_steamvr_session_settings(*store, backup);
+  say(std::string("guard=restore_") + (result.ok ? "ok" : "failed detail=" + result.detail));
+  if (log) std::fclose(log);
+  return result.ok ? 0 : 1;
+}
+
 int run_steamvr_settings_mode(int argc, wchar_t** argv) {
   try {
     if (argc < 3) {
       throw std::invalid_argument("--steamvr-settings expects apply or restore");
     }
     const std::wstring action = argv[2];
+    if (action == L"guard") {
+      if (argc != 5 || std::wstring_view{argv[3]} != L"--pid") {
+        throw std::invalid_argument("--steamvr-settings guard expects --pid N");
+      }
+      const auto pid = std::wcstoul(argv[4], nullptr, 10);
+      if (pid == 0) throw std::invalid_argument("--steamvr-settings guard expects --pid N");
+      return run_steamvr_settings_guard(static_cast<DWORD>(pid));
+    }
     darktidevr::core::SteamVrSessionValues request;
     for (int index = 3; index < argc; ++index) {
       const std::wstring argument = argv[index];
@@ -7624,6 +7696,7 @@ class SteamVrSessionSettings {
     // Armed even when apply fails part-way: restoring with no backup is a
     // no-op, and with one it is exactly what is wanted.
     armed_ = true;
+    start_guard();
     const auto run = run_self(arguments);
     if (run.output.find("detail=steamvr-not-running") != std::string::npos) {
       return Outcome::steamvr_not_running;
@@ -7644,7 +7717,44 @@ class SteamVrSessionSettings {
   }
 
  private:
+  // A detached copy of this executable that restores once this process ends,
+  // outside the job the game puts the viewer in, so it survives the game's
+  // exit and a crash alike. Started before anything is changed.
+  void start_guard() {
+    if (guard_started_) return;
+    guard_started_ = true;
+    std::wstring executable(32768, L'\0');
+    const auto length = GetModuleFileNameW(nullptr, executable.data(), 32768);
+    if (length == 0 || length >= 32768) return;
+    executable.resize(length);
+    std::wstring command = L"\"" + executable + L"\" --steamvr-settings guard --pid " +
+                           std::to_wstring(GetCurrentProcessId());
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION information{};
+    const DWORD flags = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP;
+    bool outside_job = true;
+    auto created = CreateProcessW(executable.c_str(), command.data(), nullptr, nullptr,
+                                  FALSE, flags | CREATE_BREAKAWAY_FROM_JOB, nullptr,
+                                  nullptr, &startup, &information);
+    if (!created) {
+      // A job that forbids breakaway (an older native module): the guard
+      // then dies with the job, and the next start restores the backup.
+      outside_job = false;
+      created = CreateProcessW(executable.c_str(), command.data(), nullptr, nullptr,
+                               FALSE, flags, nullptr, nullptr, &startup, &information);
+    }
+    std::cout << "steamvr_settings.guard="
+              << (created ? (outside_job ? "started" : "started_inside_job") : "failed")
+              << '\n';
+    if (created) {
+      CloseHandle(information.hThread);
+      CloseHandle(information.hProcess);
+    }
+  }
+
   bool armed_{};
+  bool guard_started_{};
 };
 
 int wmain(int argc, wchar_t** argv) {

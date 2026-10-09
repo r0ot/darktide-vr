@@ -142,11 +142,14 @@ class Fixture:
     def manager(self, tools: Tools | None = None) -> Manager:
         installation = steam.find_installation(roots=[self.steam])
         vanilla = steam.load_vanilla_index(installation)
-        return Manager(Vault(self.vault_root), installation, vanilla,
-                       settings_directory=self.settings,
-                       tools=tools or Tools(loader_patch=fake_loader_patch,
-                                            vr_exe_patch=fake_vr_exe_patch),
-                       log=lambda message: None)
+        manager = Manager(Vault(self.vault_root), installation, vanilla,
+                          settings_directory=self.settings,
+                          tools=tools or Tools(loader_patch=fake_loader_patch,
+                                               vr_exe_patch=fake_vr_exe_patch),
+                          log=lambda message: None)
+        # Never the real one: a real backup would make a switch run a restore.
+        manager.steamvr_backup = self.root / "DarktideVR" / "steamvr-session-backup.txt"
+        return manager
 
     def snapshot(self) -> dict:
         files = {}
@@ -409,6 +412,20 @@ class ProfilesTest(unittest.TestCase):
         self.assertEqual(fresh.rollback(dict(journal)), [])
         self.assertEqual(fresh.rollback(dict(journal)), [])    # again: nothing to redo
         self.assertEqual(self.fixture.snapshot(), before)
+
+    def test_leaving_vr_restores_steamvr_settings_left_by_a_killed_session(self):
+        self.init()
+        self.manager.import_vr(self.fixture.vr_package())
+        self.manager.switch("vr")
+        self.manager.steamvr_backup.parent.mkdir(parents=True)
+        self.manager.steamvr_backup.write_text("darktidevr_steamvr_backup=1\nrefresh_rate_hz=144\n")
+        calls = []
+        self.manager.restore_steamvr_settings = lambda: calls.append(1) or "restored"
+        plan, _ = self.manager.switch("2d")
+        self.assertEqual(calls, [1])
+        self.assertIn("restored", plan.notes)
+        self.manager.switch("vr")                        # entering VR: the viewer's job
+        self.assertEqual(calls, [1])
 
     def test_steam_updating_blocks_a_switch(self):
         self.init()

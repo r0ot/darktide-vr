@@ -87,7 +87,9 @@ try {
             @('--steamvr-settings', 'reset'),
             @('--steamvr-settings', 'apply', '--refresh-rate', '5'),
             @('--steamvr-settings', 'apply', '--motion-smoothing', 'sometimes'),
-            @('--steamvr-settings', 'apply', '--volume', '3'))) {
+            @('--steamvr-settings', 'apply', '--volume', '3'),
+            @('--steamvr-settings', 'guard'),
+            @('--steamvr-settings', 'guard', '--pid', '0'))) {
         $ErrorActionPreference = 'Continue'
         $output = & $copy @case 2>&1 | ForEach-Object { "$_" }
         $code = $LASTEXITCODE
