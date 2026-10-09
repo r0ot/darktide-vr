@@ -519,3 +519,46 @@ into a supported second runtime.
 - SteamVR automatic rebinding: <https://www.uploadvr.com/steamvr-automatic-controller-rebinding-update/>
 - SteamVR OpenXR D3D12 reports (formats, extent rounding, ignored usage bits):
   <https://steamcommunity.com/app/250820/discussions/3/4034725980849397816>
+
+## The first game launches on the Frame (8-9 October, worn)
+
+Seven launches through `tools/profiles` (`switch vr`), the owner in the
+headset. None reached a visible VR image; each one removed a cause. In order:
+
+| launch | what was seen | what the logs showed | change |
+|---|---|---|---|
+| 1 | Steam's theatre showed the launcher, then a frozen loading frame | viewer up, settings applied, dashboard hidden; two Lua hooks gone in the 7 October build; SteamVR left at 90 Hz after exit | guard process outside the game's job; flamer hooks only where the method exists |
+| 2 | empty SteamVR world | 3,977 board captures uploaded, 0 failures, board submitted at 82-90 fps | captures forced opaque (GDI leaves alpha 0) |
+| 3 | same | same | -- |
+| 4 (SteamVR closed first) | SteamVR never started | `xrCreateInstance` fails from inside a game launch | SteamVR must already run |
+| 5 (theatre setting off) | flat frozen loading frame; refresh flipping 90/144 | viewer crash-looping: a Steam "Properties" window has the game's title | the viewer captures its parent process's window |
+| 6 | empty world | readback of the board layer shows the calibration menu, seated 2 m ahead | board seat logging, alpha statistics, opaque switch |
+| 7 (board opaque) | empty world, not black | `board_opaque=1`, ~80 fps submitted | **SteamVR is not displaying the viewer's frames at all** |
+
+Findings that hold regardless of the outcome:
+
+- **Steam's Desktop Game Theatre.** Launching a flat Steam game while
+  SteamVR runs puts it in a theatre (the frozen loading frame seen in every
+  launch is Steam's capture of the game window, not the mod's board). The
+  per-game Steam option in old guides is gone; SteamVR has a global one,
+  Settings > Dashboard > "Present Non-VR Applications on Theater Screen Upon
+  Launch" (`dashboard/autoShowGameTheater`). Turned off for launches 5-7.
+- **SteamVR must already be running**: the viewer cannot start it from inside
+  a game launch.
+- **The viewer inherits the game's Steam identity.** Started by the game it is
+  `steam.app.1361210` in `vrserver.txt`, the same key as the flat game, with
+  Steam's `gameoverlayrenderer64.dll` injected; started alone (every probe
+  that worked) it is `system.generated.openxr...`. Since `2eec2ce` the native
+  module strips `SteamAppId`, `SteamGameId`, `SteamOverlayGameId` and
+  `SteamClientLaunch` from the viewer's environment. **Untested worn**; it is
+  the current explanation for launch 7.
+- The settings guard runs inside a game session (its process was found
+  waiting on the viewer) but wrote nothing to its log; with Steam's overlay
+  injected that may be the overlay, and the environment change may settle it.
+- SteamVR left at 90 Hz with smoothing off after launch 7 (SteamVR closed
+  before a restore could run); the backup is kept and the next VR launch
+  restores it first.
+
+**Next launch:** SteamVR running first, the theatre setting off, `switch vr`,
+Play. Read `vrserver.txt` for the viewer's app key (`system.generated...` is
+the fix working), and whether the board shows.
