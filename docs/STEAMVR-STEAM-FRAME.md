@@ -686,6 +686,27 @@ capture failures).
   the second eye instead of the prepared-frame reuse; the log says
   `DARKTIDEVR_RENDER second_eye_path=full_wrapper`), same Psykhanium melee.
 
+**Launch 12: out of memory, and the crash explained.** With the full second
+eye (the log confirms `second_eye_path=full_wrapper`), ogryn melee: a 1.8 s
+stall, then the engine's own dialog: `Page allocator 'page_allocator' failed
+allocating 1470103552 bytes, total 2162950144 ... error code: 1455` (the
+paging file is too small), from `0x47e113`, the allocation inside the same
+particle render job. System commit peaked at 209 GB (the earlier crashes
+reported 77-78 GB in use), while the game's page allocator held 2.1 GB and its
+working set 4.8 GB. So every crash is memory exhaustion: the job sizes a
+scratch buffer from element counts that grow over about five minutes of
+melee, the stalls are the allocator paging, and the -1 array in launches 9-11
+is that allocation failing.
+
+- The full second-eye path does not prevent it. Fresh pairs were higher with it
+  (median 71.5, upper quartile 77, against 62.5 the session before, same
+  character): one sample, kept on for now.
+- Commit far beyond the game's own allocator means part of the growth may be
+  outside the engine's heaps (D3D12 resources in the game process, or another
+  process). Next session: `darktidevr_particle_census.flag` on (names effects
+  that are created faster than destroyed) and a read-only watcher sampling
+  system commit and per-process private bytes every 5 s.
+
 **Frame rate at DLSS Performance:** about 60 pairs a second against 50-65 at
 Balanced, so the GPU resolution is not what limits it. This matches the
 author's finding on a 4090 (`LUA-FRAME-PROFILE-2026-09-16.md`): the engine
