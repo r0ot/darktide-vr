@@ -136,6 +136,9 @@ std::atomic<std::uint64_t> install_detail{}, owners{}, updates{}, overlaps{}, ch
 std::atomic<bool> dumped{};
 std::atomic<std::uint64_t> stand_ins{}, unseen_skips{}, changed_skips{};
 bool stand_in_enabled = true;
+// Off (darktidevr_particle_trace.flag) leaves the second-eye rule on without
+// the ring, the update hook or the crash handler.
+bool recording = true;
 
 // The frame each owner was last drawn by a first (stock) pass and how it
 // looked then.
@@ -169,6 +172,7 @@ std::atomic<std::uint64_t> last_frame{};
 std::atomic<int> last_eye{-1};
 
 void record(Kind kind, const void* object, const OwnerView* view = nullptr) {
+  if (!recording) return;
   const auto index = next_record.fetch_add(1, std::memory_order_relaxed);
   auto& r = ring[index % kRing];
   LARGE_INTEGER now{};
@@ -392,7 +396,8 @@ bool install_particle_trace(HMODULE module, ParticleEyeReader eye) {
     CreateDirectoryW(log_directory.c_str(), nullptr);
   }
   stand_in_enabled = !switched_off(beside(module, L"darktidevr_particle_stand_in.flag"));
-  if (switched_off(beside(module, L"darktidevr_particle_trace.flag"))) {
+  recording = !switched_off(beside(module, L"darktidevr_particle_trace.flag"));
+  if (!recording && !stand_in_enabled) {
     install_state.store(2);
     return true;
   }
@@ -413,12 +418,12 @@ bool install_particle_trace(HMODULE module, ParticleEyeReader eye) {
   eye_reader = eye;
   if (MH_CreateHook(base + kOwner, reinterpret_cast<void*>(&owner_hook),
                     reinterpret_cast<void**>(&original_owner)) != MH_OK ||
-      MH_CreateHook(base + kUpdate, reinterpret_cast<void*>(&update_hook),
-                    reinterpret_cast<void**>(&original_update)) != MH_OK) {
+      (recording && MH_CreateHook(base + kUpdate, reinterpret_cast<void*>(&update_hook),
+                                  reinterpret_cast<void**>(&original_update)) != MH_OK)) {
     install_state.store(4);
     return false;
   }
-  AddVectoredExceptionHandler(1, on_exception);
+  if (recording) AddVectoredExceptionHandler(1, on_exception);
   install_state.store(1);
   return true;
 }

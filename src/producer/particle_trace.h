@@ -12,8 +12,10 @@ namespace darktidevr::producer {
 // %LOCALAPPDATA%\DarktideVR\particle-trace-<pid>.log when the owner meets
 // garbage counts, when they change under a running render, or when the known
 // crash fires. Register after MH_Initialize, before MH_EnableHook. Declines,
-// returning true, unless every verified site matches or when
-// darktidevr_particle_trace.flag beside the module says "off".
+// returning true, unless every verified site matches, or when both
+// darktidevr_particle_trace.flag and darktidevr_particle_stand_in.flag beside
+// the module say "off"; the trace flag alone stops only the recording, the
+// second-eye rule below staying on.
 bool install_particle_trace(HMODULE module, ParticleEyeReader eye);
 
 // Whether the second eye draws a particle system (10 October 2026). The second

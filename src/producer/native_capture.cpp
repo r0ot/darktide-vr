@@ -1195,6 +1195,22 @@ struct ArmedEyeCapture {
   float aspect_ratio{};
 };
 std::deque<ArmedEyeCapture> armed_eye_captures;
+// The queue's length and, with exactly one capture armed, its eye and pose,
+// for the particle hooks: published under boundary_capture_mutex at every
+// change, so the hooks read it without taking that lock. Taking it three times
+// per particle render, from every render worker (17,000 renders a second),
+// held the game at 45 frames a second on the Steam Frame against 60 to 70
+// before the trace (10 October). Bits 0-7 length (at most 255), 8-9 eye + 1,
+// 10-63 pose sequence.
+std::atomic<std::uint64_t> armed_eye_head{};
+void publish_armed_eye_head() {
+  std::uint64_t packed = std::min<std::uint64_t>(armed_eye_captures.size(), 255);
+  if (armed_eye_captures.size() == 1) {
+    packed |= static_cast<std::uint64_t>(armed_eye_captures.front().eye + 1) << 8;
+    packed |= armed_eye_captures.front().pose_sequence << 10;
+  }
+  armed_eye_head.store(packed, std::memory_order_release);
+}
 // Capture-gate rejections logged while the continuous submission is paused,
 // bounded per session; they name the identity check a paused ring waits on.
 std::atomic<unsigned> streamline_gate_reject_reports{};
@@ -11135,6 +11151,7 @@ void STDMETHODCALLTYPE execute_command_lists_hook(
             armed_eye_captures.front().vertical_fov_radians;
         requested_aspect_ratio = armed_eye_captures.front().aspect_ratio;
         armed_eye_captures.pop_front();
+        publish_armed_eye_head();
         completed_back_buffer = found->second;
         const auto selected_candidate =
             camera_output_candidate_index.load(std::memory_order_relaxed);
@@ -14029,12 +14046,11 @@ int install_hooks(ID3D12Device* supplied_device = nullptr) {
       !darktidevr::producer::install_particle_trace(native_capture_module, +[] {
         darktidevr::producer::ParticleEyeContext context;
         context.present = present_count.load(std::memory_order_relaxed);
-        std::scoped_lock lock(boundary_capture_mutex);
-        context.queued = armed_eye_captures.size();
-        if (context.queued == 1) {
-          context.eye = armed_eye_captures.front().eye;
-          context.pose = armed_eye_captures.front().pose_sequence;
-        }
+        // Lock-free: see armed_eye_head.
+        const auto head = armed_eye_head.load(std::memory_order_acquire);
+        context.queued = head & 0xff;
+        context.eye = static_cast<int>((head >> 8) & 3) - 1;
+        context.pose = head >> 10;
         return context;
       }) ||
       // Declines on any other build; see particle_simulation_once.cpp.
@@ -15528,6 +15544,7 @@ int capture_armed_eye_from_swapchain(int eye) {
     }
     requested = armed_eye_captures.front();
     armed_eye_captures.pop_front();
+    publish_armed_eye_head();
   }
 
   ComPtr<ID3D12CommandQueue> queue;
@@ -17142,6 +17159,7 @@ extern "C" __declspec(dllexport) int dtvr_arm_eye_capture_pose(
     boundary_tag_reset_count.fetch_add(armed_eye_captures.size(),
                                        std::memory_order_relaxed);
     armed_eye_captures.clear();
+    publish_armed_eye_head();
     camera_output_realign_pending = false;
     write_boundary_census_log(
         "frame=%llu\tOUTPUT_REALIGN\tknown=%llu\r\n",
@@ -17152,6 +17170,7 @@ extern "C" __declspec(dllexport) int dtvr_arm_eye_capture_pose(
     boundary_tag_reset_count.fetch_add(armed_eye_captures.size(),
                                        std::memory_order_relaxed);
     armed_eye_captures.clear();
+    publish_armed_eye_head();
     // An overflow observed on eye 1 has already lost its matching eye 0.
     // Resume cleanly at the next eye-0 boundary instead of queuing half a pair.
     if (eye == 1) {
@@ -17168,6 +17187,7 @@ extern "C" __declspec(dllexport) int dtvr_arm_eye_capture_pose(
   }
   armed_eye_captures.push_back(
       {eye, pose_sequence, vertical_fov, aspect_ratio});
+  publish_armed_eye_head();
   boundary_arm_count.fetch_add(1, std::memory_order_relaxed);
   write_boundary_census_log(
       "frame=%llu\tARM\teye=%d\tpose=%llu\tqueued_tags=%llu"
@@ -17397,6 +17417,7 @@ extern "C" __declspec(dllexport) int dtvr_reset_eye_capture_tags() {
   boundary_tag_reset_count.fetch_add(armed_eye_captures.size(),
                                      std::memory_order_relaxed);
   armed_eye_captures.clear();
+  publish_armed_eye_head();
   write_boundary_census_log(
       "frame=%llu\tTAG_RESET\r\n",
       present_count.load(std::memory_order_relaxed));

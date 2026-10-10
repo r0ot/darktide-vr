@@ -843,3 +843,17 @@ eye draws a system only when the stock pass drew it this frame and it is
 unchanged, and skips the rest (`earlier_skips`, `unseen_skips`,
 `changed_skips`). The cost is an effect seen by the second eye alone, at the
 edge of its view, missing from that eye.
+
+**The trace cost a third of the frame rate.** Launch 20 (the positive rule)
+played a long mission with no crash (`earlier_skips` 28,340, `unseen_skips`
+1,495, `changed_skips` 1,184), but at 45 game frames a second: the viewer's
+`interval_fresh_pair_fps` had a median of 45.0 with the longest gap two
+refresh periods (22.25 ms). Every session from launch 16, the first with the
+trace, sat at 44 to 45; every session before it at 52 to 72 (median 62.8 on
+the morning of 10 October), and the hardware-accelerated GPU scheduling change
+between launches 19 and 20 made no difference either way. The trace's eye
+reader took `boundary_capture_mutex`, the capture path's lock, three times per
+particle render from every render worker. The armed eye is now published to
+an atomic at every change to the queue (`armed_eye_head`) and read without
+the lock; `darktidevr_particle_trace.flag` saying `off` now stops only the
+recording, leaving the second-eye rule on.
