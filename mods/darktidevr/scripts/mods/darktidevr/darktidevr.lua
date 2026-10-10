@@ -3269,6 +3269,12 @@ local function apply_head_tracking(clean_position, clean_rotation)
     local character_scale, scale_source, target_eye_height,
         source_eye_height =
             presentation.calibrated_character_scale(local_player)
+    -- The player's world scale (per cent; higher, a bigger world): eye
+    -- separation and head translation shrink together.
+    local world_scale = tonumber(mod:get("vr_world_scale")) or 100
+    if world_scale >= 50 and world_scale <= 200 then
+        character_scale = character_scale * 100 / world_scale
+    end
     if runtime_ipd >= 0.03 and runtime_ipd <= 0.10 then
         half_ipd = runtime_ipd * character_scale * 0.5
         ui_eye_separation = half_ipd * 2

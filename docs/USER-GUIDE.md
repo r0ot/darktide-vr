@@ -144,6 +144,13 @@ set has changed; the settings have only moved to where they belong.
 - Either trigger continues past the title screen; hold the right trigger to
   skip a cutscene or video.
 
+### World scale
+
+Mod Options, Darktide VR, The world around you, "World scale (%)". If the
+world feels too close or small, raise it; too big or far, lower it. It
+changes the in-game distance between your eyes, and your head movement with
+it, while you play. 100% uses your headset's own IPD measurement.
+
 ### Keyboard and mouse (experimental)
 
 Play seated with keyboard and mouse while the headset shows the game: Mod

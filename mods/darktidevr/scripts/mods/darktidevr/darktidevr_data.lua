@@ -238,6 +238,16 @@ return {
                 type = "group",
                 sub_widgets = {
                     {
+                        -- User, 10 October (Steam Frame, 58 mm): "everything
+                        -- feels closer than it should". The runtime's IPD
+                        -- arrives intact, so this is a by-eye control, not
+                        -- a fix: it divides the eye separation and the head
+                        -- translation together, which is what world scale
+                        -- means in every VR port.
+                        setting_id = "vr_world_scale", type = "numeric",
+                        default_value = 100, range = {50, 200}, decimals_number = 0, step_size_value = 5,
+                    },
+                    {
                         setting_id = "marker_plane",
                         type = "checkbox",
                         default_value = true,

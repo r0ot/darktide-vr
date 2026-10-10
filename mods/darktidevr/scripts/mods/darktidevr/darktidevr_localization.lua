@@ -27,6 +27,8 @@ return {
     aiming_options = {en = "Aiming and weapons"},
     body_options = {en = "Your body and hands"},
     world_options = {en = "The world around you"},
+    vr_world_scale = {en = "World scale (%%)"},
+    vr_world_scale_description = {en = "How big the world feels. Higher makes everything larger and further away; lower makes it smaller and closer. It narrows or widens the distance between your eyes in the game, and your head movement with it. Updates while playing. 100%% is your headset's own measurement."},
     movement_options = {en = "Movement and turning"},
     keyboard_mouse_mode = {en = "Keyboard and mouse in VR"},
     keyboard_mouse_mode_description = {en = "Play with keyboard and mouse. Menus take the mouse cursor and prompts show your keyboard bindings. The mouse moves the reticle inside a deadzone; move further and the view turns with it. Turning your head carries the reticle along. The HUD follows your head as usual. Applies immediately. Without controllers, rename the empty KeyboardMouseOff file in the mod folder to KeyboardMouseOn before launching."},
