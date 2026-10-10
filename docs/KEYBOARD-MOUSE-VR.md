@@ -72,6 +72,37 @@ the change since its last write as the mouse delta:
 4. The aim is written back to the stock orientation, so firing, movement,
    targeting and the network input columns all follow it through stock code.
 
+### Body aim (10 October 2026)
+
+A second **Aim style**, chosen under the mode's toggle (Keyhole stays the
+default, so nothing changes for anyone who does not pick it). Asked for by the
+Steam Frame owner, who plays seated with keyboard and mouse: the mouse moves
+the camera and the reticle, the head moves the camera but not the reticle.
+`KeyboardMouse.step_body` replaces `step` for the same seam:
+
+1. Every mouse yaw delta turns the scene anchor, and the aim by the same
+   amount. The reticle keeps its place relative to the body the mouse steers;
+   there is no deadzone (the Reticle deadzone setting is ignored).
+2. The head never moves the aim: look 40 degrees away and the reticle stays
+   where it was, 40 degrees off the view's centre.
+3. Vertical mouse movement moves the aim within the game's pitch limits. With
+   horizontal-only mouselook (the default) the view stays level and the head
+   looks up and down; with it off the view pitches with the aim, as one,
+   bounded at 80 degrees like the keyhole's camera pitch.
+4. **Body aim leash** (degrees, 0 to 120, 0 = off, the default): past it the
+   head pulls the aim keyhole-style, measured against the view after this
+   update's turn, so the reticle cannot be left behind out of sight.
+5. Melee: a still mouse keeps the stock swing. The keyhole's toward-the-centre
+   rule reads the reticle's place in the view as a choice, which it is not
+   when the head looks freely. A moving mouse still chooses the direction.
+
+Recentre, the gap and owner resets, menus and movement are shared with the
+keyhole. Movement follows the aim (`gameplay_yaw`), so WASD steers with the
+mouse, as a body would. `keyboard_mouse` covers the step (turning, the head
+leaving the aim, pitch both ways, limits, the leash, the seam, invalid input)
+and the settings; `keyboard_mouse_melee` covers the still-mouse rule. Not yet
+worn.
+
 The seam records every orientation update. A gap (another orientation class
 such as a ledge or forced view), an owner change, or more than 0.25 s without
 an update resets the aim to the view instead of reading the stock yaw change as

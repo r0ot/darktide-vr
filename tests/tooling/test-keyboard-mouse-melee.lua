@@ -23,7 +23,8 @@ Quaternion={
     right=function(q) return q.right end,up=function(q) return q.up end,forward=function(q) return q.forward end,
 }
 local motion={0,0}
-local api=KeyboardMouse.install({get=function() end,info=function() end},function() end)
+local settings={}
+local api=KeyboardMouse.install({get=function(_,k) return settings[k] end,info=function() end},function() end)
 api.state.aim_yaw,api.state.aim_pitch=0,0
 api.mouse_motion=function() return motion[1],motion[2] end
 presentation={keyboard_mouse=api}
@@ -49,6 +50,12 @@ head=basis(0)
 motion={0,0}
 Quaternion.from_yaw_pitch_roll=function() return {right=v(1,0,0),up=v(0,0,1),forward=v(0.1,1,0.1)} end
 near(presentation.keyboard_mouse_swing_roll(1,0,1),deg(225),'toward centre')
+-- Body aim: the reticle's place in the view is where the player looks, not a
+-- choice, so a still mouse keeps the stock swing; a moving one still chooses.
+settings.keyboard_mouse_aim_style='body'
+assert(presentation.keyboard_mouse_swing_roll(1,0,1)==0,'body aim, still mouse')
+motion={0,0.05}; near(presentation.keyboard_mouse_swing_roll(1,0,1),deg(90),'body aim, moving mouse')
+settings.keyboard_mouse_aim_style=nil; motion={0,0}
 -- Nothing measurable, or no swing basis: the stock swing.
 Quaternion.from_yaw_pitch_roll=function() return basis(0) end
 assert(presentation.keyboard_mouse_swing_roll(1,0,1)==0)
@@ -56,4 +63,4 @@ motion={0.05,0}
 assert(presentation.keyboard_mouse_swing_roll(1,nil,1)==0)
 controller_observation.head_aim_qw=nil
 assert(presentation.keyboard_mouse_swing_roll(1,0,1)==0)
-print('keyboard_mouse_melee=pass headset_frame leaned_sweep toward_centre stock_fallback')
+print('keyboard_mouse_melee=pass headset_frame leaned_sweep toward_centre body_aim stock_fallback')

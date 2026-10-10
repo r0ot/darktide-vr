@@ -153,6 +153,10 @@ Options, Darktide VR, Experimental features, "Keyboard and mouse in VR".
   past its edge the view turns. Turning your head carries the reticle with
   it. Vertical mouse movement stops at the deadzone edge unless
   "Horizontal mouselook only" is turned off.
+- "Aim style" Body aim instead: the mouse always turns the view and the
+  reticle together, and your head looks around without moving the reticle.
+  "Body aim leash" (off by default) lets your head pull the reticle along once
+  you look further away than its angle. Experimental, not yet tested worn.
 - "Recentre view" (default Z) faces the view where you aim from where you
   sit now.
 - "Disable controllers" (on by default) ignores the controllers; turned

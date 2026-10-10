@@ -202,7 +202,8 @@ walk(widgets, 1, nil)
 local expected = {
     "ads_focus", "body_mirror_keybind", "focus_warning", "hub_third_person", 
     "hud_distance", "hud_editor", "hud_internal_scale", "hud_size", "hud_visible", 
-    "keyboard_mouse_deadzone", "keyboard_mouse_disable_controllers", 
+    "keyboard_mouse_aim_style", "keyboard_mouse_leash",
+    "keyboard_mouse_deadzone", "keyboard_mouse_disable_controllers",
     "keyboard_mouse_horizontal_only", "keyboard_mouse_mode", 
     "keyboard_mouse_recenter_keybind", "marker_plane", "melee_preview_keybind", 
     "melee_preview_toggle", "movement_reference", "psykhanium_online_rules", 
@@ -270,6 +271,8 @@ local justified = {
     keyboard_mouse_disable_controllers = "keyboard_mouse_mode",
     keyboard_mouse_horizontal_only = "keyboard_mouse_mode",
     keyboard_mouse_deadzone = "keyboard_mouse_mode",
+    keyboard_mouse_aim_style = "keyboard_mouse_mode: read only by keyboard_mouse.lua's observe, behind enabled()",
+    keyboard_mouse_leash = "keyboard_mouse_mode: read only by keyboard_mouse.lua's step_body, behind enabled()",
 }
 local function check_nesting(list, parent)
     for _, widget in ipairs(list) do

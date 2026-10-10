@@ -6299,8 +6299,12 @@ function presentation.keyboard_mouse_swing_roll(main_t, authored, sign)
     local aim_forward = Quaternion.forward(base)
     -- Mouse deltas are yaw/pitch changes: rightward movement lowers yaw.
     local dx, dy = kbm.mouse_motion(main_t)
+    -- With body aim the reticle's place in the view is wherever the player
+    -- is looking, not a swing they chose: a still mouse keeps the stock swing.
+    local body = kbm.options().style == "body"
     local wx, wy = kbm.melee_direction(dx, dy,
-        Vector3.dot(aim_forward, head_right), Vector3.dot(aim_forward, head_up))
+        not body and Vector3.dot(aim_forward, head_right) or nil,
+        not body and Vector3.dot(aim_forward, head_up) or nil)
     if not wx then return 0 end
     local wanted = head_right * wx + head_up * wy
     return kbm.roll_for(Vector3.dot(wanted, Quaternion.right(base)),

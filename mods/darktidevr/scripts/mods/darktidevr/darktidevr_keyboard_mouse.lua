@@ -30,6 +30,12 @@ function KeyboardMouse.widgets(switch_file)
         {setting_id="keyboard_mouse_horizontal_only",type="checkbox",default_value=true},
         {setting_id="keyboard_mouse_deadzone",type="numeric",default_value=15,range={0,40},
             decimals_number=0,step_size_value=1},
+        -- Appended so the four above keep their places (and saved values).
+        {setting_id="keyboard_mouse_aim_style",type="dropdown",default_value="keyhole",options={
+            {text="keyboard_mouse_aim_style_keyhole",value="keyhole"},
+            {text="keyboard_mouse_aim_style_body",value="body"}}},
+        {setting_id="keyboard_mouse_leash",type="numeric",default_value=0,range={0,120},
+            decimals_number=0,step_size_value=5},
     }}
 end
 
@@ -158,8 +164,12 @@ end
 function KeyboardMouse.options(get)
     local deadzone = get("keyboard_mouse_deadzone")
     if not finite(deadzone) then deadzone = 15 end
+    local leash = get("keyboard_mouse_leash")
+    if not finite(leash) then leash = 0 end
     return {deadzone=math.rad(clamp(deadzone, 0, 40)),
-        horizontal_only=get("keyboard_mouse_horizontal_only") ~= false}
+        horizontal_only=get("keyboard_mouse_horizontal_only") ~= false,
+        style=get("keyboard_mouse_aim_style") == "body" and "body" or "keyhole",
+        leash=math.rad(clamp(leash, 0, 120))}
 end
 
 function KeyboardMouse.reset(state)
@@ -208,6 +218,48 @@ function KeyboardMouse.step(state, head_yaw, head_pitch, mouse_yaw, mouse_pitch,
     end
     state.aim_yaw = wrap(head_yaw+yaw_turn+yaw_offset)
     state.aim_pitch = clamp(head_pitch+pitch_turn+pitch_offset, min_pitch, max_pitch)
+    return yaw_turn, pitch_turn
+end
+
+-- Body aim (aim style "body", 10 October 2026, the owner's request): the mouse
+-- turns the view and the aim together, one to one, so the reticle keeps its
+-- place relative to the body the mouse steers; the head looks around freely
+-- and never moves the aim. Vertical mouse movement moves the aim; with
+-- horizontal-only mouselook off it tilts the view with it, as one, bounded
+-- like the keyhole's camera pitch. With a leash (radians, 0 off) the head
+-- pulls the aim once it is further than that from the view, keyhole-style, so
+-- the reticle cannot be left behind out of sight. Returns the camera yaw and
+-- pitch to add, as step does.
+function KeyboardMouse.step_body(state, head_yaw, head_pitch, mouse_yaw, mouse_pitch, options, min_pitch, max_pitch)
+    if not finite(head_yaw) or not finite(head_pitch) then return 0, 0 end
+    mouse_yaw = finite(mouse_yaw) and mouse_yaw or 0
+    mouse_pitch = finite(mouse_pitch) and mouse_pitch or 0
+    min_pitch = finite(min_pitch) and min_pitch or -math.rad(89)
+    max_pitch = finite(max_pitch) and max_pitch or math.rad(89)
+    local horizontal_only = not options or options.horizontal_only ~= false
+    state.camera_pitch = finite(state.camera_pitch) and state.camera_pitch or 0
+    if horizontal_only then state.camera_pitch = 0 end
+    if not finite(state.aim_yaw) or not finite(state.aim_pitch) then
+        state.aim_yaw, state.aim_pitch = wrap(head_yaw), clamp(head_pitch, min_pitch, max_pitch)
+        return 0, 0
+    end
+    local yaw_turn = mouse_yaw
+    local aim_yaw = wrap(state.aim_yaw+mouse_yaw)
+    local aim_pitch = clamp(state.aim_pitch+mouse_pitch, min_pitch, max_pitch)
+    local pitch_turn = 0
+    if not horizontal_only then
+        local camera = clamp(state.camera_pitch+(aim_pitch-state.aim_pitch), -KeyboardMouse.max_camera_pitch,
+            KeyboardMouse.max_camera_pitch)
+        pitch_turn, state.camera_pitch = camera-state.camera_pitch, camera
+    end
+    local leash = options and finite(options.leash) and options.leash or 0
+    if leash > 0 then
+        -- Against the view after this update's turn.
+        local view_yaw, view_pitch = head_yaw+yaw_turn, head_pitch+pitch_turn
+        aim_yaw = wrap(view_yaw+clamp(wrap(aim_yaw-view_yaw), -leash, leash))
+        aim_pitch = clamp(view_pitch+clamp(aim_pitch-view_pitch, -leash, leash), min_pitch, max_pitch)
+    end
+    state.aim_yaw, state.aim_pitch = aim_yaw, aim_pitch
     return yaw_turn, pitch_turn
 end
 
@@ -297,8 +349,10 @@ function KeyboardMouse.install(mod, finder)
         end
         local yaw_turn = 0
         if not frozen or state.aim_yaw == nil then
-            yaw_turn = KeyboardMouse.step(state, head_yaw, head_pitch, mouse_yaw, mouse_pitch,
-                api.options(), min_pitch, max_pitch)
+            local options = api.options()
+            local step = options.style == "body" and KeyboardMouse.step_body or KeyboardMouse.step
+            yaw_turn = step(state, head_yaw, head_pitch, mouse_yaw, mouse_pitch,
+                options, min_pitch, max_pitch)
         end
         if state.aim_yaw == nil then return nil end
         state.written_yaw, state.written_pitch = state.aim_yaw%TAU, state.aim_pitch%TAU

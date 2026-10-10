@@ -69,6 +69,63 @@ local o=KeyboardMouse.options(function(k) return ({keyboard_mouse_deadzone=100})
 near(o.deadzone,math.rad(40)); assert(o.horizontal_only==true)
 o=KeyboardMouse.options(function(k) return ({keyboard_mouse_deadzone=0/0,keyboard_mouse_horizontal_only=false})[k] end)
 near(o.deadzone,math.rad(15)); assert(o.horizontal_only==false)
+assert(o.style=='keyhole','keyhole is the default style'); near(o.leash,0,'leash off by default')
+o=KeyboardMouse.options(function(k) return ({keyboard_mouse_aim_style='body',keyboard_mouse_leash=500})[k] end)
+assert(o.style=='body'); near(o.leash,math.rad(120),'leash bounded')
+o=KeyboardMouse.options(function(k) return ({keyboard_mouse_aim_style='nonsense',keyboard_mouse_leash=0/0})[k] end)
+assert(o.style=='keyhole'); near(o.leash,0)
+
+-- Body aim: the mouse turns the view and the aim together; the head never
+-- moves the aim.
+local body={style='body',horizontal_only=true,leash=0}
+s={}
+near(select(1,KeyboardMouse.step_body(s,1,0.1,0,0,body)),0,'body entry')
+near(s.aim_yaw,1); near(s.aim_pitch,0.1)
+yaw=KeyboardMouse.step_body(s,1,0.1,0.02,0,body)
+near(yaw,0.02,'every mouse yaw turns the view'); near(s.aim_yaw,1.02)
+-- The head turns 40 degrees (the view includes the last turn): the aim stays.
+yaw=KeyboardMouse.step_body(s,1.02+math.rad(40),0.1,0,0,body)
+near(yaw,0,'head turned the view'); near(s.aim_yaw,1.02,'head moved the aim')
+-- Mouse while looking away still turns both together.
+yaw=KeyboardMouse.step_body(s,1.02+math.rad(40),0.1,-0.5,0,body)
+near(yaw,-0.5); near(s.aim_yaw,0.52)
+-- Horizontal-only: mouse pitch moves the aim and never the view; looking up
+-- leaves the aim where it was.
+yaw,pitch=KeyboardMouse.step_body(s,0.52,0.1,0,0.3,body)
+near(pitch,0); near(s.aim_pitch,0.4); near(s.camera_pitch,0)
+KeyboardMouse.step_body(s,0.52,0.9,0,0,body)
+near(s.aim_pitch,0.4,'looking up moved the aim')
+-- The game's pitch limits bound the aim.
+KeyboardMouse.step_body(s,0.52,0,0,10,body,-1.2,1.2)
+near(s.aim_pitch,1.2)
+-- Full mouselook: the view pitches with the aim, bounded like the keyhole's.
+local tilt={style='body',horizontal_only=false,leash=0}
+s={}
+KeyboardMouse.step_body(s,0,0,0,0,tilt)
+yaw,pitch=KeyboardMouse.step_body(s,0,0,0,0.3,tilt)
+near(pitch,0.3); near(s.camera_pitch,0.3); near(s.aim_pitch,0.3)
+KeyboardMouse.step_body(s,0,0.3,0,10,tilt,-1.5,1.5)
+assert(s.camera_pitch<=KeyboardMouse.max_camera_pitch+1e-12)
+-- Leash: past it the head pulls the aim, so the reticle stays within reach.
+local leashed={style='body',horizontal_only=true,leash=math.rad(60)}
+s={}
+KeyboardMouse.step_body(s,0,0,0,0,leashed)
+KeyboardMouse.step_body(s,math.rad(45),0,0,0,leashed)
+near(s.aim_yaw,0,'inside the leash the aim stays')
+KeyboardMouse.step_body(s,math.rad(90),0,0,0,leashed)
+near(s.aim_yaw,math.rad(30),'past the leash the head pulls it')
+KeyboardMouse.step_body(s,math.rad(90),0,0.1,0,leashed)
+near(s.aim_yaw,math.rad(30)+0.1,'the mouse turns the aim and the view together')
+-- Across the pi seam, and against invalid input.
+s={}
+KeyboardMouse.step_body(s,math.pi-0.01,0,0,0,body)
+KeyboardMouse.step_body(s,math.pi-0.01,0,0.02,0,body)
+near(KeyboardMouse.wrap(s.aim_yaw-(math.pi+0.01)),0,'seam')
+near(KeyboardMouse.step_body(s,0/0,0,1,0,body),0); near(KeyboardMouse.wrap(s.aim_yaw-(math.pi+0.01)),0)
+near(KeyboardMouse.step_body(s,0,0,0/0,math.huge,body),0)
+-- Recentre is shared: it turns the view onto the aim.
+s={aim_yaw=0.5,aim_pitch=0,camera_pitch=0}
+near(KeyboardMouse.recenter(s,-0.25),0.75)
 
 -- Installed observer: mouse delta comes from the stock orientation minus the
 -- last written value; discontinuities, owners and menus never read as mouse.
@@ -293,6 +350,12 @@ assert(widget.sub_widgets[4].setting_id=='keyboard_mouse_deadzone' and widget.su
     widget.sub_widgets[4].range[2]==40,'reticle deadzone is not the larger adjustable default')
 assert(widget.sub_widgets[1].setting_id=='keyboard_mouse_recenter_keybind' and
     widget.sub_widgets[1].function_name=='recenter_vr_view')
+assert(widget.sub_widgets[5].setting_id=='keyboard_mouse_aim_style' and
+    widget.sub_widgets[5].default_value=='keyhole','the aim style must default to the keyhole')
+assert(widget.sub_widgets[6].setting_id=='keyboard_mouse_leash' and widget.sub_widgets[6].default_value==0)
+for _,option in ipairs(widget.sub_widgets[5].options) do
+    assert(text[option.text] and text[option.text].en,'missing text '..option.text)
+end
 for _,w in ipairs({widget,unpack(widget.sub_widgets)}) do
     assert(text[w.setting_id] and text[w.setting_id].en,'missing text '..w.setting_id)
     assert(text[w.setting_id..'_description'] and text[w.setting_id..'_description'].en)

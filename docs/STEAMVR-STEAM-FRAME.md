@@ -645,3 +645,28 @@ an older build) places the particle update owner at `46b380`, nearby.
   stack, so the main thread's work at the time is not recoverable.
 - If it recurs: compare the RVA and error context, and note the weapon and
   what was on screen.
+
+**Launch 10 (the same day): the same crash again.** Same RVA, call stack and
+error context (`ParticleSystem #ID[784a7caf47f7e867]`, another system),
+Psykhanium, mid-combo with the psyker's force sword (heavies), keyboard and
+mouse on. 1.3 s earlier one frame spent 889 ms in `Lua->update`, then a
+268 ms fence wait. Both crashes: VR, Psykhanium, force-sword melee (the first
+4 s after the blade's special), right after a long stall; none in 2D.
+
+- Not the mod's engine hooks: the bootstrap log shows `substitution=0` and
+  `cluster_light_fix=0`. The billboard substitution and the cluster-light fix
+  are requested and NOT installed on build 25681127; their engine signatures
+  belong to the build before the 7 October update, like the skinner patch's
+  offsets did. They need porting (separately: they correct per-eye billboards
+  and light culling), and the particle probes are opt-in and hash-gated.
+- Next evidence: whether it follows the force sword (another weapon or
+  character in the Psykhanium) and whether the long Lua stall always precedes it.
+
+**Frame rate at DLSS Performance:** about 60 pairs a second against 50-65 at
+Balanced, so the GPU resolution is not what limits it. This matches the
+author's finding on a 4090 (`LUA-FRAME-PROFILE-2026-09-16.md`): the engine
+alone renders a pair in under 7 ms (133 Hz), but with the viewer and streamer
+running it takes about 22 ms and pins near 55 Hz regardless of scene load --
+the GPU shared by time-slicing between processes. Every lever inside the mod
+was measured there without effect; Windows hardware-accelerated GPU
+scheduling was the one system arm never run.
