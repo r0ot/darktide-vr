@@ -2,6 +2,7 @@
 // the first render of an update simulates, every further render of that frame
 // and update draws only, and nothing else is ever suppressed.
 #include "producer/particle_simulation_once.h"
+#include "producer/particle_trace.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -41,6 +42,20 @@ int main() {
   // A fresh record never suppresses, whatever its zero-initialised fields.
   ParticleSimulationSeen fresh{};
   expect(!particle_simulated_already(fresh, 0, 0, 0), "an empty record never suppresses");
+
+  // The second eye's stand-in rule (particle_trace.h), from the launch-16 trace:
+  // drawn by the first pass in frame 12938, missing from it in 12939.
+  using darktidevr::producer::particle_stale_in_second_eye;
+  expect(particle_stale_in_second_eye(true, 12938, 12939, 12939), "just destroyed: stand-in");
+  expect(!particle_stale_in_second_eye(true, 12939, 12939, 12939), "drawn by the first pass this frame: live");
+  expect(!particle_stale_in_second_eye(false, 0, 12939, 12939),
+         "never drawn by a first pass (visible to the second eye only): drawn");
+  expect(!particle_stale_in_second_eye(true, 12900, 12939, 12939),
+         "gone from the first pass long ago (second eye only now): drawn");
+  expect(particle_stale_in_second_eye(true, 12931, 12939, 12939), "within the window");
+  expect(!particle_stale_in_second_eye(true, 12930, 12939, 12939), "just outside the window");
+  expect(!particle_stale_in_second_eye(true, 12938, 12939, 12938),
+         "this frame's first pass has not run: nothing decided");
 
   if (failures != 0) return EXIT_FAILURE;
   std::printf("particle_simulation_once=pass first_simulates second_draws next_update unvisited_frame "

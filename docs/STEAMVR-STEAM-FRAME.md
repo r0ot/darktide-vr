@@ -772,3 +772,28 @@ running it takes about 22 ms and pins near 55 Hz regardless of scene load --
 the GPU shared by time-slicing between processes. Every lever inside the mod
 was measured there without effect; Windows hardware-accelerated GPU
 scheduling was the one system arm never run.
+
+**Launch 16: the root cause.** A private mission (op_no_mans_land) crashed
+seconds after the squad could move, before any combat, so not the
+Psykhanium and not melee: the same RVA (`ParticleSystem #ID[77a53f32b6449276]`).
+The trace dumped on garbage at the owner's entry: object `1ec2444c780` (id
+`77a53f32...`) had rendered normally in both passes every frame -- the stock
+pass (`eye=-1`) then the second eye (`eye=1`) -- and in frame 12939 the stock
+pass no longer drew it (it was the only object missing against frame 12938:
+the engine had destroyed it) while the second-eye pass did, from freed memory
+already reused for float data (array `0x3f800000c07bd643`, count
+`0xC2216B70`, -40.4f). No update ever overlapped a render. So the second eye
+renders particle systems the engine has already destroyed; melee destroys
+short-lived effects fastest, which is why it crashed there first. The second
+pass also had one to three more systems than the first every frame (per-eye
+culling and stale entries alike).
+
+Fix (`particle_trace.cpp`): in the second-eye pass a system the first pass
+drew within the last 8 frames but not this frame gets an empty stand-in (a
+zeroed object keeping its id): the renderer runs its normal path with no
+emitters, and its caller's scratch-buffer protocol (`[rbp-0x70..-0x60]` at
+`0x388479`) is untouched. The destroyed object is never read again. Systems
+the second eye alone sees (never in the first pass, or gone from it longer
+than the window) still draw. `darktidevr_particle_stand_in.flag` saying `off`
+beside the module turns it off; counters in `DARKTIDEVR_PARTICLE_TRACE`
+(`stand_ins`, `stand_in_garbage`). The garbage check stays log-only.

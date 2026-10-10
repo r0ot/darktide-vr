@@ -89,7 +89,7 @@ bool same(const OwnerView& a, const OwnerView& b) {
 
 enum Kind : std::uint32_t {
   owner_enter = 1, owner_exit, update_enter, update_exit, render_during_update,
-  owner_changed, owner_garbage
+  owner_changed, owner_garbage, owner_stand_in
 };
 const char* kind_name(std::uint32_t kind) {
   switch (kind) {
@@ -100,6 +100,7 @@ const char* kind_name(std::uint32_t kind) {
     case render_during_update: return "render_during_update";
     case owner_changed: return "owner_changed";
     case owner_garbage: return "owner_garbage";
+    case owner_stand_in: return "owner_stand_in";
   }
   return "?";
 }
@@ -132,6 +133,28 @@ std::atomic<int> install_state{};
 std::atomic<std::uint64_t> install_detail{}, owners{}, updates{}, overlaps{}, changes{},
     garbage_seen{}, dumps{};
 std::atomic<bool> dumped{};
+std::atomic<std::uint64_t> stand_ins{}, stand_in_garbage{};
+bool stand_in_enabled = true;
+
+// The frame each owner was last drawn by a first (stock) pass, and the last
+// frame any first pass ran.
+struct FirstPass {
+  std::mutex mutex;
+  std::unordered_map<const void*, std::uint64_t> last;
+  std::uint64_t pruned{};
+};
+std::array<FirstPass, 64> first_pass{};
+std::atomic<std::uint64_t> first_pass_frame{~0ull};
+
+// An owner with no emitters and no counts: the renderer takes its normal path,
+// allocates nothing and draws nothing, and its caller's buffer protocol is
+// unchanged. Per thread, because renders run on many.
+std::uint8_t* stand_in_for(const OwnerView& stale) {
+  alignas(64) thread_local std::array<std::uint8_t, 0x1000> stand_in{};
+  stand_in.fill(0);
+  std::memcpy(stand_in.data() + 0x240, &stale.id, sizeof(stale.id));
+  return stand_in.data();
+}
 std::wstring log_directory;
 
 // Visualizers being updated right now, by which thread.
@@ -226,6 +249,36 @@ std::uint64_t owner_hook(void* owner, std::uint64_t a2, std::uint64_t a3, std::u
   owners.fetch_add(1, std::memory_order_relaxed);
   const auto before = read_owner(owner);
   record(owner_enter, owner, &before);
+  bool stale = false;
+  if (stand_in_enabled && eye_reader) {
+    const auto eye = eye_reader();
+    auto& pass = first_pass[(reinterpret_cast<std::uintptr_t>(owner) >> 6) % first_pass.size()];
+    std::scoped_lock lock(pass.mutex);
+    if (eye.eye != 1) {
+      pass.last[owner] = eye.present;
+      first_pass_frame.store(eye.present, std::memory_order_relaxed);
+      if (eye.present > pass.pruned + 600) {
+        for (auto it = pass.last.begin(); it != pass.last.end();) {
+          it = it->second + 600 < eye.present ? pass.last.erase(it) : std::next(it);
+        }
+        pass.pruned = eye.present;
+      }
+    } else {
+      const auto it = pass.last.find(owner);
+      const bool known = it != pass.last.end();
+      stale = particle_stale_in_second_eye(known, known ? it->second : 0, eye.present,
+                                           first_pass_frame.load(std::memory_order_relaxed));
+    }
+  }
+  if (stale) {
+    stand_ins.fetch_add(1, std::memory_order_relaxed);
+    if (garbage(before)) stand_in_garbage.fetch_add(1, std::memory_order_relaxed);
+    record(owner_stand_in, owner, &before);
+    // Never read the destroyed object again: it may already belong to
+    // something else.
+    return original_owner(stand_in_for(before), a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13,
+                          a14, a15, a16, a17, a18, a19, a20);
+  }
   if (garbage(before)) {
     garbage_seen.fetch_add(1);
     record(owner_garbage, owner, &before);
@@ -332,6 +385,7 @@ bool install_particle_trace(HMODULE module, ParticleEyeReader eye) {
     log_directory = std::wstring(local.data(), local_size) + L"\\DarktideVR";
     CreateDirectoryW(log_directory.c_str(), nullptr);
   }
+  stand_in_enabled = !switched_off(beside(module, L"darktidevr_particle_stand_in.flag"));
   if (switched_off(beside(module, L"darktidevr_particle_trace.flag"))) {
     install_state.store(2);
     return true;
@@ -363,7 +417,7 @@ bool install_particle_trace(HMODULE module, ParticleEyeReader eye) {
   return true;
 }
 
-int particle_trace_state(std::uint64_t values[8]) {
+int particle_trace_state(std::uint64_t values[10]) {
   if (values) {
     values[0] = owners.load(std::memory_order_relaxed);
     values[1] = updates.load(std::memory_order_relaxed);
@@ -373,6 +427,8 @@ int particle_trace_state(std::uint64_t values[8]) {
     values[5] = dumps.load(std::memory_order_relaxed);
     values[6] = next_record.load(std::memory_order_relaxed);
     values[7] = install_detail.load(std::memory_order_relaxed);
+    values[8] = stand_ins.load(std::memory_order_relaxed);
+    values[9] = stand_in_garbage.load(std::memory_order_relaxed);
   }
   return install_state.load();
 }

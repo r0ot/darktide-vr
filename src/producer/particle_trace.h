@@ -16,6 +16,20 @@ namespace darktidevr::producer {
 // darktidevr_particle_trace.flag beside the module says "off".
 bool install_particle_trace(HMODULE module, ParticleEyeReader eye);
 
+// Whether the second eye's render of a particle system should get an empty
+// stand-in instead (10 October 2026, trace launch 16: in frame 12939 the stock
+// pass no longer drew system 1ec2444c780, the engine having destroyed it, and
+// the second eye's pass drew it from freed, reused memory). A system the first
+// pass drew this frame is live; one it drew within the last `window` frames
+// but not this one has just been destroyed. Nothing is decided in a frame
+// whose first pass has not run. Pure.
+inline bool particle_stale_in_second_eye(bool known, std::uint64_t last_first_pass,
+                                         std::uint64_t frame, std::uint64_t first_pass_frame,
+                                         std::uint64_t window = 8) {
+  if (!known || first_pass_frame != frame || last_first_pass == frame) return false;
+  return frame > last_first_pass && frame - last_first_pass <= window;
+}
+
 // Called by the GPU visualizer hook for every render of one visualizer: notes
 // a render that overlaps an update of the same visualizer.
 void particle_trace_note_render(const void* visualizer);
@@ -23,7 +37,8 @@ void particle_trace_note_render(const void* visualizer);
 // For the mod's console log: 0 not asked, 1 installed, 2 off, 3 declined on a
 // signature (values[7] = its RVA), 4 MinHook refused. values: owner renders,
 // updates, renders overlapping an update of the same visualizer, owner
-// renders whose counts changed during the call, garbage owners seen, dumps
-// written, records in the ring, detail.
-int particle_trace_state(std::uint64_t values[8]);
+// renders whose counts changed during the call, garbage owners reaching the
+// engine, dumps written, records in the ring, detail, second-eye renders
+// given the stand-in, of which with garbage counts.
+int particle_trace_state(std::uint64_t values[10]);
 }  // namespace darktidevr::producer
