@@ -77,7 +77,16 @@ function module.install(mod, presentation)
     end
     -- Scope the engine hooks to exactly the particle created by stock start_fx.
     -- Stock retains charge variables, particle groups, sounds and effect IDs.
+    local create_particles
+    -- The one create_particles hook in the mod (DMF keeps one per function):
+    -- the particle census (darktidevr_particle_census) counts through it.
     mod:hook(World,'create_particles',function(func,world,name,position,rotation,...)
+        local id=create_particles(func,world,name,position,rotation,...)
+        local census=presentation.particle_census
+        if census then census.created(world,name,id) end
+        return id
+    end)
+    function create_particles(func,world,name,position,rotation,...)
         local entry=scope
         if not entry or entry.world~=world or entry.name~=name or entry.id then
             return func(world,name,position,rotation,...)
@@ -95,7 +104,7 @@ function module.install(mod, presentation)
         local id=func(world,name,visual,rotation,...)
         entry.id=id
         return id
-    end)
+    end
     mod:hook(World,'link_particles',function(func,world,id,unit,node,pose,orphaned_policy,...)
         local entry=scope
         if entry and entry.world==world and entry.id==id and entry.unit==unit then
