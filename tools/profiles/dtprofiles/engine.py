@@ -474,13 +474,29 @@ class Manager:
                 notes.append(f"{component}: {'updated' if old is not None else 'new'}, stored")
         mods_present = sorted((c[4:] for c in present if c.startswith("mod:")), key=str.lower)
         declared = self.resolve_mods(profile)
-        if sorted(declared, key=str.lower) != mods_present:
-            added = sorted(set(mods_present) - set(declared))
-            removed = sorted(set(declared) - set(mods_present))
+        # Measured against what the last switch installed, not against the
+        # profile as it stands: a mod added to the active profile since then
+        # (`mods add` on the profile in use) is not in the game folder yet,
+        # and is not one the user removed (10 October: three new mods were
+        # dropped from vr-custom as "removed in the game folder").
+        installed = {folder.lower() for folder in map(scanmod.mod_folder_of,
+                                                       state.get("applied", {}))
+                     if folder and folder.lower() != scanmod.VR_MOD.lower()}
+        present_lower = {name.lower() for name in mods_present}
+        declared_lower = {name.lower() for name in declared}
+        removed = sorted((name for name in declared
+                          if name.lower() in installed and name.lower() not in present_lower),
+                         key=str.lower)
+        added = sorted((name for name in mods_present if name.lower() not in installed
+                        and name.lower() not in declared_lower), key=str.lower)
+        if removed or added:
             if isinstance(profile.get("mods"), dict):
                 notes.append(f"profile {active}: its mods followed {profile['mods']['from']!r}; "
                              "they are now its own list")
-            profile["mods"] = mods_present
+            removed_lower = {name.lower() for name in removed}
+            profile["mods"] = sorted([name for name in declared
+                                      if name.lower() not in removed_lower] + added,
+                                     key=str.lower)
             if added:
                 notes.append(f"profile {active}: mods added in the game folder: {', '.join(added)}")
             if removed:

@@ -256,6 +256,22 @@ class ProfilesTest(unittest.TestCase):
         self.assertFalse((self.fixture.game / "mods" / "Beta").exists())
         self.assertIn("mod:Beta", self.manager.library()["components"])   # still in the vault
 
+    def test_a_mod_added_to_the_active_profile_is_installed_not_dropped(self):
+        self.init()
+        self.manager.import_vr(self.fixture.vr_package())
+        self.manager.switch("2d")
+        profile = self.manager.profile("vr-custom")
+        profile["mods"] = ["Alpha"]
+        self.manager.save_profile("vr-custom", profile)
+        self.manager.switch("vr-custom")
+        profile = self.manager.profile("vr-custom")
+        profile["mods"] = ["Alpha", "Beta"]                               # `mods add` while active
+        self.manager.save_profile("vr-custom", profile)
+        plan, _ = self.manager.switch("vr-custom")
+        self.assertFalse(any("removed in the game folder" in note for note in plan.notes))
+        self.assertEqual(self.manager.profile("vr-custom")["mods"], ["Alpha", "Beta"])
+        self.assertTrue((self.fixture.game / "mods" / "Beta").is_dir())
+
     def test_vr_profiles_settings_slots_and_incremental_mods(self):
         self.init()
         self.manager.import_vr(self.fixture.vr_package())
