@@ -662,6 +662,30 @@ mouse on. 1.3 s earlier one frame spent 889 ms in `Lua->update`, then a
 - Next evidence: whether it follows the force sword (another weapon or
   character in the Psykhanium) and whether the long Lua stall always precedes it.
 
+**Launch 11: the same crash with the ogryn's pickaxe**, so not the force
+sword. Error context `ParticleSystem #ID[fab3f9157509854c]`, the same system
+as launch 9. 210 ms in `MyGame::render`, then a 249 ms fence wait, then the
+crash. The viewer was healthy to the end (65-73 fresh pairs a second, no
+capture failures).
+
+- In every crashed session the Psykhanium play had only two or three main
+  stalls, and the largest came within half a second of the crash, in a
+  different phase each time (fence wait, Lua update, render). The stall is part
+  of the failure, not background.
+- `0x47de30` opens the profiler scope `ParticleSystem` and reads `dev_wireframe`
+  and `cluster_v2`: it is the particle RENDER job. It loops over an emitter
+  array, count at `[rsi+0x70]` and array at `[rsi+0x78]`, and the array is -1:
+  a render-side particle object drawn after it was torn down.
+- Nothing in the native module makes the game's queues wait on the viewer
+  (its waits are on the game's own capture fences), so the stall is not the
+  viewer holding the game.
+- Leading hypothesis: the second `Application.render_world` per frame (the
+  second eye) meets particle state the engine expects to be drawn once per
+  frame, as the skinning assert the exe patch removes does. Experiment 1:
+  `darktidevr_full_second_eye.flag` = `enabled` (the full render wrapper for
+  the second eye instead of the prepared-frame reuse; the log says
+  `DARKTIDEVR_RENDER second_eye_path=full_wrapper`), same Psykhanium melee.
+
 **Frame rate at DLSS Performance:** about 60 pairs a second against 50-65 at
 Balanced, so the GPU resolution is not what limits it. This matches the
 author's finding on a 4090 (`LUA-FRAME-PROFILE-2026-09-16.md`): the engine
