@@ -60,6 +60,33 @@ not measure their CPU cost, worker cost or call frequency. The temporary lookup
 could be investigated for cached parameter offsets, but has no demonstrated
 performance benefit and requires layout-lifetime/invalidation evidence.
 
+## Build 25681127: duplicate simulation confirmed and fixed (10 October 2026)
+
+On the 7 October build the same functions sit at new addresses: the update
+`0x573f40` (was `561e00`), `GPUVisualizer::render` `0x5758b0` (was `563770`),
+the update-side owner calls the update once (`0x47cd5a`), and the rendering
+owner `0x47de30` (was `46cfc0`) calls the render from one site (`0x47edfb`);
+particle shadows have their own inline path. The update recomputes `+514`
+every update (`0x57483c`, `mov [r13+0x514], al`; an emission forces it at
+`0x575520`) and advances `+510`, `+4e4` and `+4e8` only when it is set
+(`0x5755ba`). The render reads `+514` at entry and gates emit
+(`0x575fb4`), simulate (`0x576045`, with a global setting) and a later step
+(`0x576c02`) on it, and never writes it.
+
+So with two `render_world` calls a frame every GPU particle system emitted and
+simulated twice per update into the same parity's buffers. On the Steam Frame
+that ended every Psykhanium melee session within minutes: the rendering owner
+sized scratch from garbage element counts (STEAMVR-STEAM-FRAME.md, launches
+9-13). `src/producer/particle_simulation_once.cpp` hooks `0x5758b0` and lets
+only the first render of a frame and update (same present count, `+510` and
+`+4e4`) simulate; a further render clears `+514` for its own call and
+restores it. Rendering is never skipped. It installs only when all four sites
+above match byte for byte, logs to
+`%LOCALAPPDATA%\DarktideVR\particle-simulation-once.log` (installed or the
+reason it declined, then render/simulated/suppressed counts each minute), and
+`darktidevr_particle_simulation_once.flag` saying `off` beside the module
+turns it off. `particle_simulation_once` tests the rule.
+
 ## Next evidence required
 
 - Count regular emit/sim submissions by particle object, update serial and eye;

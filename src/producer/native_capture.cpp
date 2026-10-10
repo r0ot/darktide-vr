@@ -9,6 +9,7 @@
 #include "producer/bounded_diagnostic.h"
 #include "producer/present_cpu_profile.h"
 #include "producer/particle_submission_probe.h"
+#include "producer/particle_simulation_once.h"
 #include "producer/compute_dispatch_probe.h"
 #include "producer/native_original_ring.h"
 #include "producer/engine_preparation_probe.h"
@@ -14022,6 +14023,10 @@ int install_hooks(ID3D12Device* supplied_device = nullptr) {
           context.pose = armed_eye_captures.front().pose_sequence;
         }
         return context;
+      }) ||
+      // Declines on any other build; see particle_simulation_once.cpp.
+      !darktidevr::producer::install_particle_simulation_once(native_capture_module, +[] {
+        return static_cast<std::uint64_t>(present_count.load(std::memory_order_relaxed));
       }) ||
       !darktidevr::producer::install_resource_handle_trace(native_capture_module) ||
       !darktidevr::producer::install_ngx_output_probe(native_capture_module, +[] {
