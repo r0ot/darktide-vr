@@ -41,6 +41,18 @@ LOADER_TREES = ("mods\\base\\", "mods\\dmf\\")
 # switched, so a launch does not count as a change to a profile.
 GENERATED = re.compile(r"^mods\\auto_mod_loader_log\.txt$|\.dtprofiles-tmp$")
 
+# Written by the VR mod while it runs: every pixel shader its native module
+# sees, about 1,700 files a launch, never read back. They belong to the VR
+# component, so leaving VR removes them with it (AML would otherwise find a
+# darktidevr folder), but they are never stored nor written back.
+RUNTIME_OUTPUT = re.compile(r"^mods\\darktidevr\\bin\\(billboard|blended)_pixel_shaders\\",
+                            re.IGNORECASE)
+
+
+def is_runtime_output(key: str) -> bool:
+    return RUNTIME_OUTPUT.match(key) is not None
+
+
 # The files the loader patch and the VR mod change in place.
 BUNDLE_DATABASE = "bundle\\bundle_database.data"
 BUNDLE_DATABASE_BACKUP = "bundle\\bundle_database.data.bak"

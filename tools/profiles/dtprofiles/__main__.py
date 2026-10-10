@@ -11,6 +11,7 @@ import os
 import sys
 from pathlib import Path
 
+from . import graphics
 from . import scan as scanmod
 from .engine import Manager, Plan, ProfileError
 from .steam import SteamError, find_installation, load_vanilla_index
@@ -244,6 +245,72 @@ def command_vr_import(manager: Manager, args) -> int:
     return 0
 
 
+def command_graphics(manager: Manager, args) -> int:
+    action = args.action
+    if action == "options":
+        for name, choices in graphics.OPTIONS.items():
+            print(f"{name:<26} {' | '.join(map(str, choices))}")
+        for block, keys in graphics.SLIDERS.items():
+            print(f"{block}.KEY{'':<17} {', '.join(keys)}")
+        print("dlss: 0 off, 1 auto, 2 ultra performance, 3 performance, 4 balanced, "
+              "5 quality, 6 DLAA; dlss_g: 0 off, 1 2x, 2 3x, 3 4x")
+        return 0
+    if action == "show":
+        slot = args.slot or "live"
+        document, live = manager.settings_document(slot)
+        state = manager.state() or {}
+        title = state.get("settings_slot") if live else slot
+        print(f"graphics of slot {title!r}{' (the file in use)' if live else ''}:")
+        lines = sorted(f"{k} = {v}" for k, v in graphics.flatten(document).items()) \
+            if args.all else graphics.summary(document)
+        for line in lines:
+            print(f"  {line}")
+        return 0
+    if action == "diff":
+        if len(args.settings) != 1:
+            raise ProfileError("graphics diff SLOT OTHER")
+        first, _ = manager.settings_document(args.slot)
+        second, _ = manager.settings_document(args.settings[0])
+        a, b = graphics.flatten(first), graphics.flatten(second)
+        for key in sorted(set(a) | set(b)):
+            if a.get(key) != b.get(key):
+                print(f"  {key:<58} {a.get(key, '-'):>16} -> {b.get(key, '-')}")
+        return 0
+    settings = list(args.settings)
+    source = None
+    if action == "preset":
+        if len(settings) != 1:
+            raise ProfileError("graphics preset SLOT FILE")
+        preset = read_json(Path(settings[0]))
+        if not isinstance(preset, dict) or not isinstance(preset.get("settings"), list):
+            raise ProfileError(f"{settings[0]}: expected a JSON object with a settings list")
+        source = preset.get("from")
+        settings = preset["settings"]
+        print(preset.get("description", ""))
+    elif action == "copy":
+        if len(settings) != 1:
+            raise ProfileError("graphics copy SLOT FROM")
+        source, settings = settings[0], []
+    elif action != "set":
+        raise ProfileError(f"unknown action {action}")
+    changes = manager.change_graphics(args.slot, settings, source=source, dry_run=True)
+    if not changes:
+        print("nothing to change")
+        return 0
+    print(f"graphics of slot {args.slot!r}:")
+    for change in changes:
+        print(f"  {change}")
+    if not args.yes:
+        try:
+            if input("Type yes to apply: ").strip().lower() != "yes":
+                raise ProfileError("cancelled")
+        except EOFError:
+            raise ProfileError("cancelled")
+    manager.change_graphics(args.slot, settings, source=source)
+    print("saved")
+    return 0
+
+
 def command_verify(manager: Manager, args) -> int:
     bad = []
     referenced = set()
@@ -296,6 +363,16 @@ def main(argv=None) -> int:
     vr = sub.add_parser("vr-import", help="store the VR mod from a runtime package")
     vr.add_argument("package")
     sub.add_parser("verify", help="check every stored file in the vault")
+    gfx = sub.add_parser(
+        "graphics", help="each profile's video settings (settings slots)",
+        description="show [SLOT] | diff SLOT OTHER | set SLOT NAME=VALUE... | "
+                    "preset SLOT FILE | copy SLOT FROM | options. SLOT is a settings slot "
+                    "(2d, vr) or 'live', the file in use.")
+    gfx.add_argument("action", choices=("show", "diff", "set", "preset", "copy", "options"))
+    gfx.add_argument("slot", nargs="?")
+    gfx.add_argument("settings", nargs="*")
+    gfx.add_argument("--all", action="store_true", help="show every graphics value")
+    gfx.add_argument("--yes", action="store_true", help="do not ask")
     args = parser.parse_args(argv)
     try:
         manager = make_manager(args)

@@ -16,7 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools" / "profiles"))
 
-from dtprofiles import engine, steam  # noqa: E402
+from dtprofiles import engine, graphics, sjson, steam  # noqa: E402
 from dtprofiles.engine import Manager, ProfileError, Tools  # noqa: E402
 from dtprofiles.store import Vault, read_json, sha256_file  # noqa: E402
 
@@ -460,6 +460,181 @@ class ProfilesTest(unittest.TestCase):
         self.manager.installation.state_flags = 6
         with self.assertRaises(ProfileError):
             self.manager.switch("vanilla")
+
+    def test_vr_shader_dumps_leave_with_vr_and_are_never_stored(self):
+        self.init()
+        self.manager.import_vr(self.fixture.vr_package())
+        self.manager.switch("vr")
+        dump = "mods/darktidevr/bin/blended_pixel_shaders/ps-0123456789abcdef.bin"
+        self.fixture.write(dump, b"dxil")
+        self.manager.switch("2d")
+        self.assertFalse((self.fixture.game / "mods" / "darktidevr").exists())
+        stored = self.manager.library()["components"]["vr"]["files"]
+        self.assertFalse(any("pixel_shaders" in key for key in stored))
+        self.manager.switch("vr")
+        self.assertFalse((self.fixture.game / dump).exists())
+
+
+# --- graphics settings --------------------------------------------------------
+
+SETTINGS_2D = """
+adapter_index = 0
+fullscreen = true
+master_render_settings = {
+\tdlss = 5
+\tdlss_g = 1
+\tgraphics_quality = "custom"
+\trt_reflections_quality = "high"
+}
+mods_settings = {
+\tAlpha = {
+\t\tcolour = "red"
+\t\tkeys = [
+\t\t\t"r"
+\t\t\t"left shift"
+\t\t]
+\t}
+\toptions_menu_last_selected = "Alpha"
+}
+render_settings = {
+\tdlss_enabled = true
+\tdlss_g_enabled = true
+\tlocal_lights_shadow_atlas_size = [
+\t\t4096
+\t\t4096
+\t]
+\trt_reflections_enabled = true
+\tsharpness = 0.5
+\tupscaling_quality = "quality"
+\tvolumetric_reprojection_amount = -0.875
+}
+screen_mode = "fullscreen"
+sound_settings = {
+\toption_master_slider = 13
+}
+texture_settings = {
+\t"content/texture_categories/character_bc" = 0
+}
+"""
+
+
+class GraphicsTest(unittest.TestCase):
+    def test_the_file_round_trips_byte_for_byte(self):
+        self.assertEqual(sjson.dumps(sjson.parse(SETTINGS_2D)), SETTINGS_2D)
+        self.assertFalse(sjson.round_trips("a = {\n"))
+        self.assertFalse(sjson.round_trips("\na=1\n"))       # not the game's own spacing
+
+    def test_a_menu_option_writes_both_layers(self):
+        document = sjson.parse(SETTINGS_2D)
+        changes = graphics.apply(document, "rt_reflections_quality=off")
+        render = document["render_settings"]
+        self.assertEqual(document["master_render_settings"]["rt_reflections_quality"].raw, '"off"')
+        self.assertEqual(render["rt_reflections_enabled"].raw, "false")
+        self.assertEqual(render["world_space_motion_vectors"].raw, "false")   # added, in order
+        self.assertLess(list(render).index("volumetric_reprojection_amount"),
+                        list(render).index("world_space_motion_vectors"))
+        self.assertIn("render_settings.rt_reflections_enabled=false", changes)
+        graphics.apply(document, "dlss=4")
+        self.assertEqual(render["upscaling_quality"].raw, '"balanced"')
+        graphics.apply(document, "light_quality=high")
+        self.assertEqual([v.raw for v in render["local_lights_shadow_atlas_size"]], ["2048", "2048"])
+        graphics.apply(document, "render.sharpness=0.3")
+        self.assertEqual(render["sharpness"].raw, "0.3")
+        self.assertEqual(graphics.apply(document, "dlss=4"), [])               # already so
+        for bad in ("dlss=9", "nonsense=1", "master.dlss=1", "dlss"):
+            with self.assertRaises(graphics.GraphicsError):
+                graphics.apply(document, bad)
+
+    def test_merge_takes_the_slots_graphics_and_keeps_everything_else(self):
+        live = sjson.parse(SETTINGS_2D)
+        vr = sjson.parse(SETTINGS_2D)
+        graphics.apply(vr, "dlss=3")
+        vr.put("borderless_fullscreen", False)
+        vr["mods_settings"].put("darktidevr", sjson.Table(hud_distance=sjson.scalar(2)))
+        graphics.apply(live, "dlss=6")                        # the 2D file in use
+        live["sound_settings"].put("option_master_slider", 40)
+        live["mods_settings"]["Alpha"].put("colour", "blue")
+        merged = graphics.merge(live, vr)
+        self.assertEqual(merged["render_settings"]["upscaling_quality"].raw, '"performance"')
+        self.assertEqual(merged["borderless_fullscreen"].raw, "false")
+        self.assertEqual(merged["sound_settings"]["option_master_slider"].raw, "40")
+        self.assertEqual(merged["mods_settings"]["Alpha"]["colour"].raw, '"blue"')
+        self.assertIn("darktidevr", merged["mods_settings"])
+        back = graphics.merge(merged, sjson.parse(SETTINGS_2D))
+        self.assertNotIn("borderless_fullscreen", back)      # 2D never had it
+        self.assertEqual(back["render_settings"]["upscaling_quality"].raw, '"quality"')
+        self.assertEqual(back["mods_settings"]["Alpha"]["colour"].raw, '"blue"')
+        self.assertEqual(sjson.parse(sjson.dumps(back)), back)
+
+
+class GraphicsProfilesTest(unittest.TestCase):
+    """The switch with settings files the game wrote: the graphics follow the
+    profile, the rest of the file is the user's, living, in both."""
+
+    tearDown = ProfilesTest.tearDown
+    init = ProfilesTest.init
+
+    def setUp(self):
+        ProfilesTest.setUp(self)
+        self.settings = self.fixture.settings / "user_settings.config"
+        self.settings.write_text(SETTINGS_2D, encoding="utf-8", newline="\n")
+
+    def read(self):
+        return sjson.parse(self.settings.read_text(encoding="utf-8"))
+
+    def edit(self, change):
+        document = self.read()
+        change(document)
+        self.settings.write_text(sjson.dumps(document), encoding="utf-8", newline="\n")
+
+    def test_graphics_follow_the_profile_and_mod_settings_live_in_both(self):
+        self.init()
+        self.manager.import_vr(self.fixture.vr_package())
+        self.manager.switch("vr")                          # new slot: a copy of 2D
+        self.edit(lambda d: graphics.apply(d, "rt_reflections_quality=off"))   # in VR
+        self.edit(lambda d: d["mods_settings"].put(
+            "darktidevr", sjson.Table(hud_distance=sjson.scalar(2))))
+        plan, _ = self.manager.switch("2d")
+        self.assertTrue(any("graphics from slot '2d'" in note for note in plan.notes))
+        document = self.read()
+        self.assertEqual(document["master_render_settings"]["rt_reflections_quality"].raw, '"high"')
+        self.edit(lambda d: d["mods_settings"]["Alpha"].put("colour", "green"))  # in 2D
+        self.manager.switch("vr")
+        document = self.read()
+        self.assertEqual(document["master_render_settings"]["rt_reflections_quality"].raw, '"off"')
+        self.assertEqual(document["mods_settings"]["Alpha"]["colour"].raw, '"green"')
+        self.assertEqual(document["mods_settings"]["darktidevr"]["hud_distance"].raw, "2")
+
+    def test_changing_another_slot_leaves_the_file_in_use_alone(self):
+        self.init()
+        self.manager.import_vr(self.fixture.vr_package())
+        self.manager.switch("vr")
+        self.manager.switch("2d")
+        before = self.settings.read_bytes()
+        changes = self.manager.change_graphics("vr", ["dlss_g=0", "dlss=3"])
+        self.assertIn("render_settings.dlss_g_enabled=false", changes)
+        self.assertEqual(self.settings.read_bytes(), before)
+        document, live = self.manager.settings_document("vr")
+        self.assertFalse(live)
+        self.assertEqual(document["master_render_settings"]["dlss"].raw, "3")
+        self.manager.switch("vr")
+        self.assertEqual(self.read()["render_settings"]["upscaling_quality"].raw, '"performance"')
+        # The active slot is the file in use, and the game must be closed.
+        engine.running_game_processes = lambda root: [r"C:\game\Darktide.exe"]
+        with self.assertRaises(ProfileError):
+            self.manager.change_graphics("vr", ["dlss=5"])
+        engine.running_game_processes = lambda root: []
+        self.manager.change_graphics("live", ["dlss=5"])
+        self.assertEqual(self.read()["render_settings"]["upscaling_quality"].raw, '"quality"')
+
+    def test_a_file_the_parser_cannot_read_is_switched_whole(self):
+        self.init()
+        self.manager.import_vr(self.fixture.vr_package())
+        self.manager.switch("vr")
+        self.settings.write_bytes(b"settings: written by something else")
+        plan, _ = self.manager.switch("2d")
+        self.assertTrue(any("whole stored" in note for note in plan.notes))
+        self.assertEqual(self.settings.read_text(encoding="utf-8"), SETTINGS_2D)
 
 
 if __name__ == "__main__":

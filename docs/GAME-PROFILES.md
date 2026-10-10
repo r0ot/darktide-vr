@@ -41,6 +41,12 @@ it is used.
     restore-capture <id|first>  every managed file and the settings back exactly as captured
     recover                   roll back a switch that was interrupted (power cut, crash)
     vr-import <package.zip>   store the VR mod from a runtime package
+    graphics show [slot] [--all]      a slot's video settings (default: the file in use)
+    graphics diff <slot> <other>      every graphics value that differs
+    graphics set <slot> NAME=VALUE... change settings the way the video menu would
+    graphics preset <slot> <file>     apply a preset (tools/profiles/presets)
+    graphics copy <slot> <from>       take another slot's graphics
+    graphics options                  the names and values `set` accepts
     verify                    re-hash everything in the vault
     init                      the first capture; builds the profiles (done 8 October)
 
@@ -108,6 +114,41 @@ off, `hide_dashboard` on, `eye_extent` 2160x2160; see
 [STEAMVR-STEAM-FRAME.md](STEAMVR-STEAM-FRAME.md)). Change one by editing the
 flag in the game's `mods\darktidevr` folder while a VR profile is active; the
 next switch absorbs it.
+
+## Graphics per profile
+
+2D at 4K with ray tracing and frame generation is far beyond what VR can run
+at 90 Hz, and the video menu has some twenty settings, so each profile keeps
+its own (9 October).
+
+- **What a slot owns**: `master_render_settings` (the menu's choices),
+  `render_settings`, `texture_settings` and `performance_settings` (the engine
+  values those choices stand for), resolution, screen mode, V-Sync and gamma.
+- **What is shared**: everything else -- the DMF block with every mod's
+  settings (most of the file), sound, network, language. A switch keeps the
+  file in use and replaces only its graphics with the target slot's, so a mod
+  setting changed in 2D is there in VR and the reverse. A mod's settings block
+  the file lacks (the VR mod's own, coming from 2D where it does not load) is
+  taken from the slot.
+- **Changes made in game are kept**: the graphics you set in the menu while a
+  profile is active are saved into its slot at the next switch, like mods.
+- **`graphics set` writes both layers as the menu does**: `dlss=3` also sets
+  `render_settings.upscaling_quality = "performance"`, `light_quality=high` the
+  shadow atlas, and so on, from the game's own option table
+  (`scripts/settings/options/render_settings.lua`). Re-applying every choice in
+  the owner's real 2D and VR files changes nothing, which checks the table.
+  Setting another slot changes only the vault; setting the active one writes
+  the file in use (Darktide closed).
+- **Exactness**: the file is read and written by `dtprofiles/sjson.py`, which
+  gives back the game's bytes exactly; a file it cannot read exactly is never
+  edited, and a switch then falls back to the whole stored file.
+- **Starting point for VR**: `presets/vr-5090-first.json` (RTX 5090, Steam
+  Frame, 90 Hz), applied to the `vr` slot on 9 October: frame generation off,
+  DLSS Balanced, ray-traced reflections and RTXGI off, lights High, fog and AO
+  Medium, LOD multiplier 2 (from 5), fewer ragdolls and decals. Its `why`
+  block gives each reason. Adjust one setting at a time:
+  `graphics set vr dlss=3` (Performance), `dlss=5` (Quality),
+  `dlss_g=1` (frame generation 2x), `rtxgi_quality=low`.
 
 ## Known limits
 

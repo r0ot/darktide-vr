@@ -31,6 +31,7 @@ from ctypes import wintypes
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import graphics, sjson
 from . import scan as scanmod
 from .scan import (BUNDLE_DATABASE, BUNDLE_DATABASE_BACKUP, GAME_EXECUTABLE, VR_MOD,
                    VR_PROXY, component_of)
@@ -455,6 +456,7 @@ class Manager:
             if component == "vr" and imported and imported != state.get("vr_imported"):
                 notes.append("vr: the newly imported VR mod replaces the installed one")
                 continue
+            entries = {key: e for key, e in entries.items() if not scanmod.is_runtime_output(key)}
             files = {key: {"relative": e.relative, "sha256": self.vault.put_file(
                          self.root / e.relative, expected=e.sha256), "size": e.size}
                      for key, e in entries.items()}
@@ -510,6 +512,8 @@ class Manager:
             if component is None:
                 raise ProfileError(f"the vault has no {name!r} (see: list)")
             for key, item in component["files"].items():
+                if scanmod.is_runtime_output(key):
+                    continue          # stored by an earlier version; never written back
                 want[key] = (item["relative"], item["sha256"])
                 if item.get("readonly"):
                     self._want_readonly.add(key)
@@ -570,8 +574,97 @@ class Manager:
                 target = self.vault.put_file(current) if current.is_file() else None
                 plan.notes.append(f"settings slot {slot!r} is new; it starts from the "
                                   f"{state.get('settings_slot')!r} settings")
+            else:
+                target = self.merged_settings(slot, target, plan.notes)
             plan.settings = (slot, target)
         return plan
+
+    def merged_settings(self, slot: str, slot_digest: str, notes: list[str]) -> str:
+        """The settings file a switch to `slot` writes: the one in use, with
+        the slot's graphics (graphics.py). The whole stored file, as before,
+        when either cannot be read exactly."""
+        current = self.settings_directory / SLOT_FILE
+        if not current.is_file():
+            return slot_digest
+        try:
+            live = sjson.parse(current.read_bytes().decode("utf-8"))
+            stored = sjson.parse(self.vault.blob_path(slot_digest).read_bytes().decode("utf-8"))
+        except (sjson.SjsonError, UnicodeDecodeError) as error:
+            notes.append(f"settings: the whole stored {slot!r} file is used ({error})")
+            return slot_digest
+        merged = graphics.merge(live, stored)
+        added = [name for name in stored.get(graphics.MODS, {})
+                 if name not in live.get(graphics.MODS, {})]
+        notes.append(f"settings: graphics from slot {slot!r}; mod settings, sound and the rest "
+                     "kept as they are" + (f" (plus {', '.join(added)}'s mod settings from "
+                                           "the slot)" if added else ""))
+        return self.vault.put_bytes(sjson.dumps(merged).encode("utf-8"))
+
+    # --- graphics -----------------------------------------------------------
+
+    def settings_document(self, slot: str) -> tuple[sjson.Table, bool]:
+        """A slot's settings, and whether that is the file in use (the
+        active slot's graphics live there, not in the vault)."""
+        state = self.state() or {}
+        current = self.settings_directory / SLOT_FILE
+        if slot == state.get("settings_slot") or slot == "live":
+            if not current.is_file():
+                raise ProfileError(f"{current} does not exist")
+            return sjson.parse(current.read_bytes().decode("utf-8")), True
+        digest = self.slots().get(slot, {}).get("sha256")
+        if digest is None:
+            raise ProfileError(f"no settings slot {slot!r} (slots: "
+                               f"{', '.join(k for k in self.slots() if k != 'history')})")
+        return sjson.parse(self.vault.blob_path(digest).read_bytes().decode("utf-8")), False
+
+    def store_settings(self, slot: str, document: sjson.Table, live: bool) -> None:
+        """Keep `document` as `slot` (the previous version stays in the
+        slot history); the active slot is also written to the file in use."""
+        data = sjson.dumps(document).encode("utf-8")
+        if live:
+            self.guard()
+            current = self.settings_directory / SLOT_FILE
+            self.vault.put_file(current)              # the version replaced, kept
+            temporary = current.with_name(current.name + ".dtprofiles-tmp")
+            temporary.write_bytes(data)
+            os.replace(temporary, current)
+        digest = self.vault.put_bytes(data)
+        slots = self.slots()
+        if slots.get(slot, {}).get("sha256") != digest:
+            if slot in slots:
+                slots.setdefault("history", []).append(dict(slots[slot], slot=slot))
+            slots[slot] = {"sha256": digest, "saved": now()}
+            self.save_slots(slots)
+
+    def change_graphics(self, slot: str, settings: list[str], source: str | None = None,
+                        dry_run: bool = False) -> list[str]:
+        """Apply menu settings (graphics.apply) to a slot, starting from
+        `source`'s graphics when given. Returns what changed."""
+        if slot == "live":
+            slot = (self.state() or {}).get("settings_slot", "2d")
+        document, live = self.settings_document(slot)
+        changes = []
+        if source is not None:
+            origin, _ = self.settings_document(source)
+            before = graphics.flatten(document)
+            # Only the graphics: the mod settings stay the slot's own.
+            for key in graphics.GRAPHICS:
+                if key in origin:
+                    document.put(key, sjson.deep_copy(origin[key]))
+                elif key in document:
+                    del document[key]
+            after = graphics.flatten(document)
+            changes += [f"{key}={after.get(key, '(absent)')}"
+                        for key in sorted(set(before) | set(after))
+                        if before.get(key) != after.get(key)]
+        try:
+            for setting in settings:
+                changes += graphics.apply(document, setting)
+        except graphics.GraphicsError as error:
+            raise ProfileError(str(error)) from error
+        if changes and not dry_run:
+            self.store_settings(slot, document, live)
+        return changes
 
     # --- applying ---------------------------------------------------------------
 

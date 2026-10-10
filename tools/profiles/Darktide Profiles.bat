@@ -18,6 +18,8 @@ echo   6  vr-custom: add the next mod(s) from 2D
 echo   7  vr-custom: show which mods are in it
 echo   8  Vanilla: no loader, no mods
 echo   9  Plan only: show what a switch would change
+echo   G  Graphics: show the VR slot, and how it differs from 2D
+echo   S  Graphics: set a VR setting (e.g. dlss=3, dlss_g=1)
 echo   R  Restore the first capture (exactly how it was)
 echo   C  Take a capture (restore point) now
 echo   X  Recover an interrupted switch
@@ -41,6 +43,15 @@ if /i "%choice%"=="9" (
     set "target="
     set /p target=Profile ^(2d, vr, vr-mods, vr-custom, vanilla^):
     python -m dtprofiles plan !target!
+)
+if /i "%choice%"=="G" (
+    python -m dtprofiles graphics show vr
+    python -m dtprofiles graphics diff 2d vr
+)
+if /i "%choice%"=="S" (
+    set "setting="
+    set /p setting=Setting ^(see: python -m dtprofiles graphics options^):
+    python -m dtprofiles graphics set vr !setting!
 )
 if /i "%choice%"=="R" python -m dtprofiles restore-capture first
 if /i "%choice%"=="C" python -m dtprofiles capture

@@ -1,0 +1,36 @@
+{
+  "description": "First VR graphics for an RTX 5090 on a Steam Frame at 90 Hz (9 October 2026): the 2D maximums with the costs that buy little in a headset removed, aiming at 90 rendered stereo frames a second without frame generation. Ray tracing off, lights, fog, AO and LOD to the game's High preset levels or below, DLSS Balanced.",
+  "why": {
+    "dlss_g=0": "Frame generation halves the rendered rate to double the shown one: on an RTX 4090 the mod measured ~50 rendered + ~50 generated pairs/s with it, ~65 rendered without (docs/CURRENT-STATUS.md), and every generated frame adds latency the head feels. Off first; try dlss_g=1 once the rendered rate is known.",
+    "dlss=4": "Balanced: each eye is 2160x2160, so DLSS renders about 1250x1250 per eye, twice. Quality (5) is the next step up, Performance (3) the next down.",
+    "rt_reflections_quality=off": "The most expensive option, paid twice (once per eye). ssr_quality stays off: screen-space reflections differ between the eyes.",
+    "rtxgi_quality=off": "Ray-traced global illumination back to the baked GI; the second ray-tracing cost.",
+    "light_quality=high": "Extreme only doubles the local-light shadow atlas (4096 -> 2048).",
+    "volumetric_fog_quality=medium": "Extreme fog runs a 144x112x196 volume with volumetric shadows; medium is 96x80x128.",
+    "ambient_occlusion_quality=medium": "GTAO quality 2 -> 1.",
+    "render.lod_object_multiplier=2": "5 keeps full-detail objects five times farther; every object is drawn twice in VR, so this is CPU as well as GPU. 2 is the High preset.",
+    "render.sharpness=0.3": "DLSS sharpening shimmers in a headset at 0.5.",
+    "performance.*": "Fewer ragdolls and decals (the High preset's numbers); decals stay on because ground previews are decals.",
+    "kept": "Textures high (VRAM, not frame time), bloom, skin material, Reflex on, V-Sync off. Depth of field, lens effects, motion blur and windowed mode are forced by the VR mod itself."
+  },
+  "settings": [
+    "dlss_g=0",
+    "dlss=4",
+    "rt_reflections_quality=off",
+    "rtxgi_quality=off",
+    "gi_quality=low",
+    "light_quality=high",
+    "volumetric_fog_quality=medium",
+    "ambient_occlusion_quality=medium",
+    "ssr_quality=off",
+    "nv_reflex_low_latency=1",
+    "render.lod_object_multiplier=2",
+    "render.lod_scatter_density=1",
+    "render.sharpness=0.3",
+    "performance.max_ragdolls=12",
+    "performance.max_impact_decals=50",
+    "performance.max_blood_decals=50",
+    "performance.max_footstep_decals=50",
+    "performance.decal_lifetime=40"
+  ]
+}
