@@ -610,3 +610,38 @@ the proxy is now the last renderer within a second. The suite passes 285 of
   `mods\darktidevr\bin\billboard_pixel_shaders` and `blended_pixel_shaders`
   (written by the native module, never read back). The profile tool counts
   them as VR files and removes them on the next switch.
+
+## Launch 9: the first worn play, a crash, and the frame rate (10 October)
+
+The image showed, worn: the owner played the Psykhanium with controllers for
+about five minutes at the first VR graphics (`presets/vr-5090-first.json`:
+DLSS Balanced, frame generation and ray tracing off).
+
+**Frame rate.** The viewer's live lines over the last minute: 50-65 fresh
+stereo pairs a second (`interval_fresh_pair_fps`) against 90 Hz, with no
+repeated pairs; SteamVR reprojected the rest. "Decent" worn, but no headroom
+for a higher refresh rate yet. Whether the GPU or the CPU limits it is not
+measured (the mod's profilers were off). Next settings: DLSS Performance and
+LOD multiplier 1.5 (one for each), and an in-headset readout of the game's
+rate (`darktidevr_frame_rate_display.lua`, flag `darktidevr_frame_rate_display.flag`).
+
+**Crash** (Crashify `af62c02b-1ccc-4e52-bb45-1820602e4077`, console log
+`console-2026-10-10-04.03.26-…`): access violation reading `FFFFFFFFFFFFFFFF`
+at `Darktide.exe+0x47e1b6` on a worker thread, error context `ParticleSystem
+#ID[fab3f9157509854c]`, during melee, 4 s after a weapon special, right after a
+552 ms `RI::wait_for_fence` stall. The instruction loads an array pointer from
+an object (`[rsi+0x78]`) and indexes it: the shape of an object freed under a
+running update job. The job is `0x47de30` (fragment `0x47e180`), run by the job
+system's `0x717960`; the author's particle map
+([ENGINE-PARTICLE-STEREO-OWNERSHIP.md](ENGINE-PARTICLE-STEREO-OWNERSHIP.md),
+an older build) places the particle update owner at `46b380`, nearby.
+
+- It is the only engine crash in every console log since September; none of
+  the owner's 2D sessions has it. One sample cannot say whether rendering two
+  eyes per frame is the cause.
+- The mod's own particle code (staff projectile, scanner hologram) was not
+  active: melee only.
+- Nothing upstream reports it. The minidump holds only the crashing thread's
+  stack, so the main thread's work at the time is not recoverable.
+- If it recurs: compare the RVA and error context, and note the weapon and
+  what was on screen.
