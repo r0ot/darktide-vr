@@ -156,6 +156,11 @@ view: above 100% shows more and everything smaller and further away, below
 shows less and larger. Away from 100% your head turns feel slightly faster
 or slower than they are; aiming down sights zooms on top of it.
 
+"Eye position forward (cm)" moves your eyes forward or back inside your
+character's head. If nearby walls, people or your weapon feel too close and
+big, lower it: the camera starts well ahead of the game's own first-person
+position. 5 is the original setting.
+
 ### HUD height
 
 Mod Options, Darktide VR, HUD, "HUD height (%)" stretches the HUD panel

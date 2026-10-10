@@ -110,6 +110,7 @@ end
 for _,widget in ipairs(data.options.widgets) do place(widget.sub_widgets or {},widget.setting_id) end
 assert(placed.marker_plane=='world_options' and placed.vr_teammate_status=='world_options')
 assert(placed.vr_world_scale=='world_options' and placed.vr_field_of_view=='world_options')
+assert(placed.vr_eye_forward=='world_options')
 assert(placed.psykhanium_online_rules=='mode_options')
 assert(placed.vr_crosshair_scale=='aiming_options' and placed.vr_ads_zoom=='aiming_options')
 assert(placed.vr_wrist_display_scale=='body_options' and placed.vr_haptics_strength=='body_options')

@@ -29,6 +29,8 @@ return {
     world_options = {en = "The world around you"},
     vr_field_of_view = {en = "Field of view (%%)"},
     vr_field_of_view_description = {en = "How much of the world fits in your view, against your headset's own field of view. Higher shows more, so everything looks smaller and further away; lower shows less and larger. Anything but 100%% makes turning your head feel slightly faster or slower than it really is. Updates while playing; aiming down sights zooms on top of it."},
+    vr_eye_forward = {en = "Eye position forward (cm)"},
+    vr_eye_forward_description = {en = "Moves your eyes forward or back inside your character's head. If nearby things (walls, people, your weapon) feel too close and big, lower it; the camera starts well ahead of the game's own first-person position. Updates while playing; 5 is the original setting."},
     vr_world_scale = {en = "World scale (%%)"},
     vr_world_scale_description = {en = "How big the world feels. Higher makes everything larger and further away; lower makes it smaller and closer. It narrows or widens the distance between your eyes in the game, and your head movement with it. Updates while playing. 100%% is your headset's own measurement."},
     movement_options = {en = "Movement and turning"},

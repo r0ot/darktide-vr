@@ -256,6 +256,13 @@ return {
                         default_value = 100, range = {80, 125}, decimals_number = 0, step_size_value = 1,
                     },
                     {
+                        -- presentation.EYE_ANCHOR_FORWARD_M, live. 5 is the
+                        -- 18 September correction; negative pulls the eyes
+                        -- back towards the first-person camera.
+                        setting_id = "vr_eye_forward", type = "numeric",
+                        default_value = 5, range = {-25, 15}, decimals_number = 0, step_size_value = 1,
+                    },
+                    {
                         setting_id = "marker_plane",
                         type = "checkbox",
                         default_value = true,

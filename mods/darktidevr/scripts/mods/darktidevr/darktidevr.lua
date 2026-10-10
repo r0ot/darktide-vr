@@ -3276,6 +3276,14 @@ local function apply_head_tracking(clean_position, clean_rotation)
             presentation.calibrated_character_scale(local_player)
     -- The player's world scale (per cent; higher, a bigger world): eye
     -- separation and head translation shrink together.
+    -- The player's eye position along the aim (cm, default the 5 cm worn on
+    -- 18 September). On the Steam Frame the capture measured the model's eyes
+    -- 18 cm ahead of the first-person position, not 8.5, so the camera sat
+    -- about 23 cm forward and near things read as too near (user, 10 October).
+    local eye_forward_cm = tonumber(mod:get("vr_eye_forward"))
+    if eye_forward_cm and eye_forward_cm >= -30 and eye_forward_cm <= 15 then
+        presentation.EYE_ANCHOR_FORWARD_M = eye_forward_cm / 100
+    end
     local world_scale = tonumber(mod:get("vr_world_scale")) or 100
     if world_scale >= 50 and world_scale <= 200 then
         character_scale = character_scale * 100 / world_scale
