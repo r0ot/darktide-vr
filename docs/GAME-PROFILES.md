@@ -25,10 +25,10 @@ Mod Framework, as installed. **AML loads every mod folder present** and ignores
 `mod_load_order.txt`, so a profile decides which mods load by which folders
 are in `mods\`.
 
-Each profile names a **settings slot**. `user_settings.config` holds video,
-audio, input AND every mod's settings, so 2D and VR keep separate copies; the
-VR slot starts as a copy of the 2D one (mod settings included) the first time
-it is used.
+Each profile names a **settings slot** (`2d` or `vr`). A slot owns only the
+**graphics** in `user_settings.config`; every mod's settings, sound and the
+rest of the file are shared and living, whichever profile you change them in
+(see [Graphics per profile](#graphics-per-profile)).
 
 ## Commands
 
@@ -154,8 +154,8 @@ its own (9 October).
 
 - Mod dependencies are not modelled: `mods next` adds by name order, and a mod
   that needs another (DMF extensions, for example) must be added with it.
-- The VR settings slot is a copy of the 2D one from its first use; later 2D
-  mod-setting changes do not flow into it.
+- Keybindings are not in `user_settings.config` (the file has no input
+  block), so the tool never switches them.
 - A switch takes about 15 s, most of it walking the 243,000-file game folder.
 - The tool does not install or update mods or the loader: install them the
   usual way while a profile is active, and the next switch takes them in.
