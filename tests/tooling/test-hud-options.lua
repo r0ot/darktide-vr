@@ -61,6 +61,13 @@ assert(panel.scale==0.945 and panel.distance==0.75 and panel.object_scale==1.04)
 panel.apply_settings(0/0,math.huge,'bad')
 assert(panel.scale==0.63 and panel.distance==2 and panel.object_scale==2.08)
 assert(not panel.apply_settings(100,2,100),'default settings are not idempotent')
+local default_height=panel.height
+assert(panel.apply_settings(100,2,100,150),'height did not apply')
+assert(math.abs(panel.height-default_height*1.5)<1e-12 and panel.scale==0.63,'height changed more than the height')
+panel.apply_settings(100,2,100,1000)
+assert(math.abs(panel.height-default_height*2)<1e-12,'height not bounded')
+panel.apply_settings(100,2,100)
+assert(panel.height==default_height,'height default is not 100%')
 get_mod=function() return mod end
 mod.io_dofile=function(_,path)
     return dofile((arg[4]:gsub("darktidevr_controller_bindings.lua$",path:match("[^/]+$")..".lua")))
@@ -102,6 +109,7 @@ local function place(list,section)
 end
 for _,widget in ipairs(data.options.widgets) do place(widget.sub_widgets or {},widget.setting_id) end
 assert(placed.marker_plane=='world_options' and placed.vr_teammate_status=='world_options')
+assert(placed.vr_world_scale=='world_options' and placed.vr_field_of_view=='world_options')
 assert(placed.psykhanium_online_rules=='mode_options')
 assert(placed.vr_crosshair_scale=='aiming_options' and placed.vr_ads_zoom=='aiming_options')
 assert(placed.vr_wrist_display_scale=='body_options' and placed.vr_haptics_strength=='body_options')
@@ -112,9 +120,10 @@ local options=assert(groups.hud_options, 'missing HUD settings')
 assert(not groups.vr_turning and groups.movement_options.type=='group')
 assert(groups.controller_bindings and groups.controller_bindings.type=='group')
 assert(options.setting_id=='hud_options' and options.type=='group')
-assert(#options.sub_widgets==6)
-assert(options.sub_widgets[6].setting_id=='focus_warning' and
-    options.sub_widgets[6].type=='checkbox' and options.sub_widgets[6].default_value==true)
+assert(#options.sub_widgets==7)
+assert(options.sub_widgets[4].setting_id=='hud_height')
+assert(options.sub_widgets[7].setting_id=='focus_warning' and
+    options.sub_widgets[7].type=='checkbox' and options.sub_widgets[7].default_value==true)
 assert(options.sub_widgets[1].setting_id=='hud_visible' and options.sub_widgets[1].type=='checkbox' and
     options.sub_widgets[1].default_value==true and text.hud_visible.en and text.hud_visible_description.en)
 assert(text.focus_warning.en and text.focus_warning_description.en and text.hud_focus_notice.en)
@@ -128,6 +137,7 @@ for _,widget in ipairs(options.sub_widgets) do
     end
 end
 assert(string.format(text.hud_size.en)=='HUD size (%)')
+assert(string.format(text.hud_height.en)=='HUD height (%)')
 assert(options.sub_widgets[2].type=='button' and
     options.sub_widgets[2].function_name=='toggle_vr_hud_editor')
 local custom, toggles, blocked = nil, 0, true

@@ -151,6 +151,17 @@ world feels too close or small, raise it; too big or far, lower it. It
 changes the in-game distance between your eyes, and your head movement with
 it, while you play. 100% uses your headset's own IPD measurement.
 
+"Field of view (%)", beside it, fits more or less of the world into your
+view: above 100% shows more and everything smaller and further away, below
+shows less and larger. Away from 100% your head turns feel slightly faster
+or slower than they are; aiming down sights zooms on top of it.
+
+### HUD height
+
+Mod Options, Darktide VR, HUD, "HUD height (%)" stretches the HUD panel
+taller or shorter without changing its width, moving the top and bottom
+elements apart or together. Text stretches with it.
+
 ### Keyboard and mouse (experimental)
 
 Play seated with keyboard and mouse while the headset shows the game: Mod

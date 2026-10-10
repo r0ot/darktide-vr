@@ -48,7 +48,11 @@ end
 function Projection.zoomed_frustum(frustum, magnification)
     if type(frustum) ~= "table" then return frustum end
     local m = tonumber(magnification)
-    if not m or m ~= m or m <= 1.0001 or m > 4 then return frustum end
+    -- Below 1 widens (the field-of-view setting); as xr_math's
+    -- magnification_usable.
+    if not m or m ~= m or m < 0.75 or m > 4 or math.abs(m - 1) <= 0.0001 then
+        return frustum
+    end
     local function edge(angle)
         local a = tonumber(angle)
         if not a or a ~= a then return angle end
@@ -56,6 +60,19 @@ function Projection.zoomed_frustum(frustum, magnification)
     end
     return {left = edge(frustum.left), right = edge(frustum.right),
         down = edge(frustum.down), up = edge(frustum.up)}
+end
+
+-- The magnification for the field-of-view setting, in per cent of the
+-- headset's own: 100 / percent, so 125% renders a cone 1.25 times wider in
+-- tangent and shows the world that much smaller. Anything unusable is 1. Pure.
+Projection.FIELD_OF_VIEW_MIN, Projection.FIELD_OF_VIEW_MAX = 80, 125
+function Projection.field_of_view_magnification(percent)
+    local p = tonumber(percent)
+    if not p or p ~= p or p < Projection.FIELD_OF_VIEW_MIN or
+            p > Projection.FIELD_OF_VIEW_MAX then
+        return 1
+    end
+    return 100 / p
 end
 
 -- The eased magnification from an aim-down-sights state: 1 while the sights

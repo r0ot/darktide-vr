@@ -104,7 +104,9 @@ RecenteredProjection recentered_symmetric_projection(
 // because recentring rotates each eye onto its own optical axis 0.1224 rad
 // off the fused forward and a magnification about THAT axis moves the eyes in
 // opposite directions. Out of range or not finite returns the frustum
-// untouched, which is no zoom rather than a guess.
+// untouched, which is no zoom rather than a guess. Below 1 widens the frustum
+// (the field-of-view setting) down to 0.75.
+bool magnification_usable(float magnification);
 Fov zoomed_fov(Fov runtime_fov, float magnification);
 
 // The projection to SUBMIT for an image the cameras rendered through
@@ -125,8 +127,9 @@ Fov zoomed_fov(Fov runtime_fov, float magnification);
 //     T = m * T'              the image still fills the view
 //     R = atan(m * tan(R'))   forward displays at forward, in both eyes
 //
-// which is exact at the centre and second order off it. m at or below 1
-// returns the plain recentred projection.
+// which is exact at the centre and second order off it, for m below 1 as
+// above it. m of 1, or outside magnification_usable, returns the plain
+// recentred projection.
 RecenteredProjection zoom_submitted_projection(
     Fov runtime_fov, float render_aspect, float magnification);
 

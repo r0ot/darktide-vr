@@ -27,6 +27,8 @@ return {
     aiming_options = {en = "Aiming and weapons"},
     body_options = {en = "Your body and hands"},
     world_options = {en = "The world around you"},
+    vr_field_of_view = {en = "Field of view (%%)"},
+    vr_field_of_view_description = {en = "How much of the world fits in your view, against your headset's own field of view. Higher shows more, so everything looks smaller and further away; lower shows less and larger. Anything but 100%% makes turning your head feel slightly faster or slower than it really is. Updates while playing; aiming down sights zooms on top of it."},
     vr_world_scale = {en = "World scale (%%)"},
     vr_world_scale_description = {en = "How big the world feels. Higher makes everything larger and further away; lower makes it smaller and closer. It narrows or widens the distance between your eyes in the game, and your head movement with it. Updates while playing. 100%% is your headset's own measurement."},
     movement_options = {en = "Movement and turning"},
@@ -220,6 +222,10 @@ return {
     hud_size = {en = "HUD size (%%)"},
     hud_size_description = {
         en = "Scale the whole HUD panel. The default value uses the standard VR layout. Applies immediately when the VR HUD is active.",
+    },
+    hud_height = {en = "HUD height (%%)"},
+    hud_height_description = {
+        en = "Stretch the HUD panel taller or shorter without changing its width: higher moves the top and bottom elements further apart. Text stretches with it. Applies immediately when the VR HUD is active.",
     },
     hud_distance = {en = "HUD distance (m)"},
     hud_distance_description = {

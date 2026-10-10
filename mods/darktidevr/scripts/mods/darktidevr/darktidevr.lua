@@ -2969,14 +2969,19 @@ local function apply_head_tracking(clean_position, clean_rotation)
         -- panel, the marker projection -- takes the zoomed pair, so the world
         -- and everything drawn over it stay in register; only the viewer's
         -- submitted field of view is unchanged, which is what makes it a zoom.
-        local zoom = presentation.ads_zoom_magnification()
+        -- The field-of-view setting (user, 10 October) rides the same path:
+        -- above 100% renders a wider cone into the same image, which shows
+        -- the world smaller; below 100% narrower and larger.
+        local zoom = presentation.ads_zoom_magnification() *
+            presentation.projection_math.field_of_view_magnification(
+                mod.get and mod:get("vr_field_of_view"))
         head_render_frusta = {
             presentation.projection_math.zoomed_frustum(left_frustum, zoom),
             presentation.projection_math.zoomed_frustum(right_frustum, zoom)
         }
         local unzoomed = presentation.head_render_vertical_fov_unzoomed
         if unzoomed then
-            head_render_vertical_fov = zoom > 1.0001 and
+            head_render_vertical_fov = math.abs(zoom - 1) > 0.0001 and
                 2 * math.atan(math.tan(unzoomed * 0.5) / zoom) or unzoomed
         end
         -- Recorded, not yet believed: whether it reaches the cameras is

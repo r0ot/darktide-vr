@@ -248,6 +248,14 @@ return {
                         default_value = 100, range = {50, 200}, decimals_number = 0, step_size_value = 5,
                     },
                     {
+                        -- User, 10 October, after world scale changed nothing
+                        -- they could feel: "is it possible to maybe add an
+                        -- fov slider too?" The aim zoom's path, held
+                        -- (Projection.field_of_view_magnification).
+                        setting_id = "vr_field_of_view", type = "numeric",
+                        default_value = 100, range = {80, 125}, decimals_number = 0, step_size_value = 1,
+                    },
+                    {
                         setting_id = "marker_plane",
                         type = "checkbox",
                         default_value = true,
@@ -319,6 +327,14 @@ return {
                         type = "numeric",
                         default_value = 100,
                         range = {50, 150},
+                        decimals_number = 0,
+                        step_size_value = 5,
+                    },
+                    {
+                        setting_id = "hud_height",
+                        type = "numeric",
+                        default_value = 100,
+                        range = {50, 200},
                         decimals_number = 0,
                         step_size_value = 5,
                     },

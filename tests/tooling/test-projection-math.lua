@@ -85,7 +85,20 @@ local centre_before = (math.tan(wide.left) + math.tan(wide.right)) * 0.5
 local centre_after = (math.tan(zoomed.left) + math.tan(zoomed.right)) * 0.5
 assert(math.abs(centre_after * 1.12 - centre_before) < 1e-12, "the optical centre did not scale with the cone")
 -- Unusable magnifications leave the frustum exactly as it was.
-for _, m in ipairs({1, 0.5, -3, 0 / 0, 9}) do
+-- Below 1 widens the cone the same way (the field-of-view setting).
+local widened = projection.zoomed_frustum(wide, 0.8)
+for _, edge in ipairs({"left", "right", "down", "up"}) do
+    local expected = math.atan(math.tan(wide[edge]) / 0.8)
+    assert(math.abs(widened[edge] - expected) < 1e-12, "edge " .. edge .. " not widened")
+    assert(math.abs(widened[edge]) > math.abs(wide[edge]), "edge " .. edge .. " did not widen")
+end
+assert(projection.field_of_view_magnification(100) == 1)
+assert(projection.field_of_view_magnification(125) == 0.8)
+assert(math.abs(projection.field_of_view_magnification(80) - 1.25) < 1e-12)
+for _, p in ipairs({nil, "x", 0 / 0, 79, 126}) do
+    assert(projection.field_of_view_magnification(p) == 1, "unusable field of view " .. tostring(p))
+end
+for _, m in ipairs({1, 0.5, 0.74, -3, 0 / 0, 9}) do
     assert(projection.zoomed_frustum(wide, m) == wide, "magnification " .. tostring(m) .. " was applied")
 end
 assert(projection.zoomed_frustum(nil, 1.12) == nil)

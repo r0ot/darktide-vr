@@ -486,7 +486,8 @@ int main() {
                std::atan(x * std::tan(submitted_fov.angle_right));
       };
 
-      for (const float m : {1.0F, 1.05F, 1.15F, 1.30F}) {
+      // 0.8 and 0.9 widen: the field-of-view setting.
+      for (const float m : {0.8F, 0.9F, 1.0F, 1.05F, 1.15F, 1.30F}) {
         const auto left = zoom_submitted_projection(eye0, aspect, m);
         const auto right = zoom_submitted_projection(eye1, aspect, m);
         // The submitted axis taken FROM THE RETURNED QUATERNION, by turning

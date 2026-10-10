@@ -250,9 +250,16 @@ bool fov_usable(Fov runtime_fov) {
          runtime_fov.angle_down < runtime_fov.angle_up;
 }
 
+// Below 1 widens instead (the field-of-view setting, 10 October): the same
+// arithmetic, and the same hazards, in the other direction. 0.75 keeps the
+// widest headset's widened cone well inside a hemisphere.
+bool magnification_usable(float magnification) {
+  return std::isfinite(magnification) && magnification >= 0.75F &&
+         magnification <= 4.0F && std::abs(magnification - 1.0F) > 0.0001F;
+}
+
 Fov zoomed_fov(Fov runtime_fov, float magnification) {
-  if (!std::isfinite(magnification) || !(magnification > 1.0001F) ||
-      magnification > 4.0F) {
+  if (!magnification_usable(magnification)) {
     return runtime_fov;
   }
   const auto edge = [magnification](float angle) {
@@ -296,8 +303,7 @@ RecenteredProjection zoom_submitted_projection(
     Fov runtime_fov, float render_aspect, float magnification) {
   const auto rendered = zoomed_fov(runtime_fov, magnification);
   const auto base = recentered_symmetric_projection(rendered, render_aspect);
-  if (!std::isfinite(magnification) || !(magnification > 1.0001F) ||
-      magnification > 4.0F) {
+  if (!magnification_usable(magnification)) {
     return base;
   }
   // The render projection's own axis and half-angles, recomputed here because

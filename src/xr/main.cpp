@@ -3402,7 +3402,7 @@ class OpenXrProbe {
           // (review, 19 September).
           if (gameplay_aim_state_reader.read(zoom_sample) &&
               std::isfinite(zoom_sample.zoom_magnification) &&
-              zoom_sample.zoom_magnification >= 1.0F &&
+              zoom_sample.zoom_magnification >= 0.75F &&
               zoom_sample.zoom_magnification <= 4.0F) {
             held_zoom_magnification = zoom_sample.zoom_magnification;
             held_zoom_timestamp_ns = zoom_sample.timestamp_ns;
@@ -3418,7 +3418,8 @@ class OpenXrProbe {
           // change: the blend eases over about fifteen frames and each one is
           // a different number, which is fifteen lines per entry and fifteen
           // per exit for a value the log already carries elsewhere.
-          const bool zooming_now = submitted_zoom_magnification > 1.0001F;
+          const bool zooming_now =
+              std::abs(submitted_zoom_magnification - 1.0F) > 0.0001F;
           if (zooming_now != zoom_reported_active) {
             zoom_reported_active = zooming_now;
             std::cout << "openxr.submitted_zoom=" << submitted_zoom_magnification

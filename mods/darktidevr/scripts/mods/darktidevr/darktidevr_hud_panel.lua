@@ -121,18 +121,26 @@ local function bounded_setting(value, fallback, minimum, maximum)
     return math.max(minimum, math.min(maximum, value))
 end
 
-function HudPanel.apply_settings(size_percent, distance, object_percent)
+-- height_percent stretches the panel vertically only (user, 10 October: "it's
+-- pretty much as wide as i want, but i want to drop the bottom HUD elements
+-- even lower"). The HUD is a 16:9 image on a panel narrower than 16:9 already,
+-- so a taller panel also brings the text back towards its own proportions.
+function HudPanel.apply_settings(size_percent, distance, object_percent, height_percent)
     size_percent = bounded_setting(size_percent, 100, 50, 150)
     distance = bounded_setting(distance, 2, 0.75, 4)
     object_percent = bounded_setting(object_percent, 100, 50, 150)
+    height_percent = bounded_setting(height_percent, 100, 50, 200)
     local scale, object_scale = 0.63 * size_percent / 100, 2.08 * object_percent / 100
+    local height = 1.125 * 0.9 * distance * height_percent / 100
     if HudPanel.scale == scale and HudPanel.distance == distance and
-            HudPanel.object_scale == object_scale then return false end
+            HudPanel.object_scale == object_scale and HudPanel.height == height then
+        return false
+    end
     state.settings_dirty = state.settings_dirty or HudPanel.object_scale ~= object_scale
     HudPanel.scale, HudPanel.distance, HudPanel.object_scale = scale, distance, object_scale
     -- Width is recomputed from the runtime binocular overlap at this distance.
     -- Scale height with distance too, preserving the accepted vertical angle.
-    HudPanel.height = 1.125 * 0.9 * distance
+    HudPanel.height = height
     state.logged = false
     return true
 end
@@ -142,7 +150,7 @@ function HudPanel.read_settings(mod)
     state.focus_warning = value("focus_warning") ~= false
     state.hud_visible = value("hud_visible") ~= false
     return HudPanel.apply_settings(value("hud_size"), value("hud_distance"),
-        value("hud_internal_scale"))
+        value("hud_internal_scale"), value("hud_height"))
 end
 
 -- Scene-depth, projected-world and eye-edge elements remain on the stock
@@ -1099,6 +1107,7 @@ function HudPanel.install(mod)
     mod.on_setting_changed = function(setting_id)
         if previous_setting_changed then previous_setting_changed(setting_id) end
         if setting_id == "hud_size" or setting_id == "hud_distance" or
+                setting_id == "hud_height" or
                 setting_id == "hud_internal_scale" or
                 setting_id == "focus_warning" or
                 setting_id == "hud_visible" then HudPanel.read_settings(mod) end

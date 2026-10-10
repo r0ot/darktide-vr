@@ -15842,7 +15842,8 @@ extern "C" __declspec(dllexport) int dtvr_set_gameplay_zoom(
   // Out of range is refused, not clamped. A wrong magnification here is not a
   // cosmetic error -- it is the two eyes pulled apart by
   // 2 * 0.1224 * (m - 1) radians.
-  if (!(magnification >= 1.0F) || !(magnification <= 4.0F)) {
+  // Below 1 is the field-of-view setting widening the view (10 October).
+  if (!(magnification >= 0.75F) || !(magnification <= 4.0F)) {
     return 1;
   }
   gameplay_zoom_magnification.store(magnification, std::memory_order_relaxed);
