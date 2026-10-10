@@ -30,6 +30,15 @@ inline bool particle_stale_in_second_eye(bool known, std::uint64_t last_first_pa
   return frame > last_first_pass && frame - last_first_pass <= window;
 }
 
+// Whether the second eye's render of a system the stock pass drew this same
+// frame should be skipped because the system no longer looks as it did then
+// (launch 18: torn down by the game between the two passes, within one frame).
+// `unchanged`: its counts, arrays, id and [+8] match the stock pass's. Pure.
+inline bool particle_changed_since_first_pass(bool known, std::uint64_t last_first_pass,
+                                              std::uint64_t frame, bool unchanged) {
+  return known && last_first_pass == frame && !unchanged;
+}
+
 // Called by the GPU visualizer hook for every render of one visualizer: notes
 // a render that overlaps an update of the same visualizer.
 void particle_trace_note_render(const void* visualizer);
@@ -39,6 +48,7 @@ void particle_trace_note_render(const void* visualizer);
 // updates, renders overlapping an update of the same visualizer, owner
 // renders whose counts changed during the call, garbage owners reaching the
 // engine, dumps written, records in the ring, detail, second-eye renders
-// skipped as just destroyed, of which with garbage counts.
-int particle_trace_state(std::uint64_t values[10]);
+// skipped as just destroyed, of which with garbage counts, second-eye renders
+// skipped as changed since the stock pass drew them this frame.
+int particle_trace_state(std::uint64_t values[11]);
 }  // namespace darktidevr::producer

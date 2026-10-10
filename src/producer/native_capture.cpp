@@ -15939,12 +15939,12 @@ extern "C" __declspec(dllexport) int dtvr_particle_simulation_once_state(
   return state;
 }
 // The particle crash trace's state and counters (see particle_trace.h);
-// values must hold ten.
+// values must hold eleven.
 extern "C" __declspec(dllexport) int dtvr_particle_trace_state(unsigned long long* values) {
-  std::uint64_t copy[10]{};
+  std::uint64_t copy[11]{};
   const auto state = darktidevr::producer::particle_trace_state(copy);
   if (values) {
-    for (int i = 0; i < 10; ++i) values[i] = copy[i];
+    for (int i = 0; i < 11; ++i) values[i] = copy[i];
   }
   return state;
 }

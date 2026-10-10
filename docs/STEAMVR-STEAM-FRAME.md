@@ -811,3 +811,19 @@ the capacity is non-zero, it frees that block itself (`vtable+0x98`) and
 resets the descriptor (`0x3884c4..0x3884f0`); the return value is unused. So
 the second-eye render of a just-destroyed system is now skipped outright and
 the object never read again.
+
+**Launch 18: torn down within the frame.** A different mission, the same
+moment (control given after the opening shot) and the same instruction: an
+access violation at `0x47e6cf`, now reading `0x3f7ff4ff`. The skip had worked
+1,890 times (`stand_ins`), but object `2a926b58780` (id `039add19...`) was drawn
+normally by the stock pass in frame 11075 with one emitter and met by the
+second eye 2.5 ms later in the same frame with none, its `[+8]` holding
+`0x3f7ff4db` (float data, so reused memory). The game tears systems down
+between the two passes of one frame, not only between frames, with no hooked
+update running in between; the frame-based rule cannot see that. The stock
+pass now snapshots what it drew (counts, arrays, id and `[+8]`), and the
+second eye also skips a system it drew this frame that no longer matches
+(`changed_skips` in `DARKTIDEVR_PARTICLE_TRACE`, same flag). A live system the
+game changes between the passes is skipped in that eye for that frame only. A
+teardown during the second eye's own call remains possible; making the game
+defer destruction until both passes have drawn would close that.

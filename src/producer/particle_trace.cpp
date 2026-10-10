@@ -62,7 +62,7 @@ constexpr std::array<Site, 5> kSites{{
 
 // The owner's arrays and counts, as the crashing code reads them.
 struct OwnerView {
-  std::uint64_t id{}, array{};
+  std::uint64_t id{}, array{}, plus8{};
   std::uint32_t count{}, a0{}, b8{}, d0{};
   bool readable{};
 };
@@ -71,6 +71,7 @@ OwnerView read_owner(const void* owner) {
   const auto* bytes = static_cast<const std::uint8_t*>(owner);
   view.readable = bytes && safe_copy_bytes(&view.id, bytes + 0x240, 8) &&
                   safe_copy_bytes(&view.array, bytes + 0x78, 8) &&
+                  safe_copy_bytes(&view.plus8, bytes + 0x08, 8) &&
                   safe_copy_bytes(&view.count, bytes + 0x70, 4) &&
                   safe_copy_bytes(&view.a0, bytes + 0xa0, 4) &&
                   safe_copy_bytes(&view.b8, bytes + 0xb8, 4) &&
@@ -84,7 +85,7 @@ bool garbage(const OwnerView& v) {
 }
 bool same(const OwnerView& a, const OwnerView& b) {
   return a.array == b.array && a.count == b.count && a.a0 == b.a0 && a.b8 == b.b8 &&
-         a.d0 == b.d0 && a.id == b.id;
+         a.d0 == b.d0 && a.id == b.id && a.plus8 == b.plus8;
 }
 
 enum Kind : std::uint32_t {
@@ -133,14 +134,18 @@ std::atomic<int> install_state{};
 std::atomic<std::uint64_t> install_detail{}, owners{}, updates{}, overlaps{}, changes{},
     garbage_seen{}, dumps{};
 std::atomic<bool> dumped{};
-std::atomic<std::uint64_t> stand_ins{}, stand_in_garbage{};
+std::atomic<std::uint64_t> stand_ins{}, stand_in_garbage{}, changed_skips{};
 bool stand_in_enabled = true;
 
-// The frame each owner was last drawn by a first (stock) pass, and the last
-// frame any first pass ran.
+// The frame each owner was last drawn by a first (stock) pass and how it
+// looked then, and the last frame any first pass ran.
+struct FirstPassDraw {
+  std::uint64_t frame{};
+  OwnerView view{};
+};
 struct FirstPass {
   std::mutex mutex;
-  std::unordered_map<const void*, std::uint64_t> last;
+  std::unordered_map<const void*, FirstPassDraw> last;
   std::uint64_t pruned{};
 };
 std::array<FirstPass, 64> first_pass{};
@@ -240,29 +245,32 @@ std::uint64_t owner_hook(void* owner, std::uint64_t a2, std::uint64_t a3, std::u
   owners.fetch_add(1, std::memory_order_relaxed);
   const auto before = read_owner(owner);
   record(owner_enter, owner, &before);
-  bool stale = false;
+  bool stale = false, changed = false;
   if (stand_in_enabled && eye_reader) {
     const auto eye = eye_reader();
     auto& pass = first_pass[(reinterpret_cast<std::uintptr_t>(owner) >> 6) % first_pass.size()];
     std::scoped_lock lock(pass.mutex);
     if (eye.eye != 1) {
-      pass.last[owner] = eye.present;
+      pass.last[owner] = FirstPassDraw{eye.present, before};
       first_pass_frame.store(eye.present, std::memory_order_relaxed);
       if (eye.present > pass.pruned + 600) {
         for (auto it = pass.last.begin(); it != pass.last.end();) {
-          it = it->second + 600 < eye.present ? pass.last.erase(it) : std::next(it);
+          it = it->second.frame + 600 < eye.present ? pass.last.erase(it) : std::next(it);
         }
         pass.pruned = eye.present;
       }
     } else {
       const auto it = pass.last.find(owner);
       const bool known = it != pass.last.end();
-      stale = particle_stale_in_second_eye(known, known ? it->second : 0, eye.present,
+      const auto drawn = known ? it->second.frame : 0;
+      stale = particle_stale_in_second_eye(known, drawn, eye.present,
                                            first_pass_frame.load(std::memory_order_relaxed));
+      changed = particle_changed_since_first_pass(known, drawn, eye.present,
+                                                  known && same(it->second.view, before));
     }
   }
-  if (stale) {
-    stand_ins.fetch_add(1, std::memory_order_relaxed);
+  if (stale || changed) {
+    (changed ? changed_skips : stand_ins).fetch_add(1, std::memory_order_relaxed);
     if (garbage(before)) stand_in_garbage.fetch_add(1, std::memory_order_relaxed);
     record(owner_stand_in, owner, &before);
     // Not drawn, and never read again: it may already belong to something
@@ -271,6 +279,10 @@ std::uint64_t owner_hook(void* owner, std::uint64_t a2, std::uint64_t a3, std::u
     // call that never happened leaves as the caller set it; the return value
     // is unused. (A zeroed stand-in object, the first version, crashed: the
     // owner reads [rsi+8]->+0x24 with no emitters at 0x47e6cb, launch 17.)
+    // A system the stock pass drew this frame can still be torn down before
+    // the second eye reaches it (launch 18: 2a926b58780 drawn with one
+    // emitter, then met 2.5 ms later with none and [+8] = 0x3f7ff4db), so the
+    // second eye also skips one that no longer looks as the stock pass saw it.
     return 0;
   }
   if (garbage(before)) {
@@ -411,7 +423,7 @@ bool install_particle_trace(HMODULE module, ParticleEyeReader eye) {
   return true;
 }
 
-int particle_trace_state(std::uint64_t values[10]) {
+int particle_trace_state(std::uint64_t values[11]) {
   if (values) {
     values[0] = owners.load(std::memory_order_relaxed);
     values[1] = updates.load(std::memory_order_relaxed);
@@ -423,6 +435,7 @@ int particle_trace_state(std::uint64_t values[10]) {
     values[7] = install_detail.load(std::memory_order_relaxed);
     values[8] = stand_ins.load(std::memory_order_relaxed);
     values[9] = stand_in_garbage.load(std::memory_order_relaxed);
+    values[10] = changed_skips.load(std::memory_order_relaxed);
   }
   return install_state.load();
 }

@@ -57,6 +57,15 @@ int main() {
   expect(!particle_stale_in_second_eye(true, 12938, 12939, 12938),
          "this frame's first pass has not run: nothing decided");
 
+  // Launch 18: drawn by the stock pass in frame 11075, torn down before the
+  // second eye reached it in the same frame.
+  using darktidevr::producer::particle_changed_since_first_pass;
+  expect(particle_changed_since_first_pass(true, 11075, 11075, false), "torn down since this frame's draw: skip");
+  expect(!particle_changed_since_first_pass(true, 11075, 11075, true), "unchanged since this frame's draw: drawn");
+  expect(!particle_changed_since_first_pass(true, 11074, 11075, false),
+         "last drawn an earlier frame: the stale rule decides");
+  expect(!particle_changed_since_first_pass(false, 0, 11075, false), "never drawn by a first pass: drawn");
+
   if (failures != 0) return EXIT_FAILURE;
   std::printf("particle_simulation_once=pass first_simulates second_draws next_update unvisited_frame "
               "stale_address fresh_record\n");
