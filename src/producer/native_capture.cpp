@@ -15914,6 +15914,17 @@ dtvr_install_for_device(ID3D12Device* device) {
 extern "C" __declspec(dllexport) int dtvr_bootstrap_state() {
   return bootstrap_install_state.load(std::memory_order_acquire);
 }
+// The stereo particle fix's state and counters, for the mod's console log
+// (see particle_simulation_once.h); values must hold four.
+extern "C" __declspec(dllexport) int dtvr_particle_simulation_once_state(
+    unsigned long long* values) {
+  std::uint64_t copy[4]{};
+  const auto state = darktidevr::producer::particle_simulation_once_state(copy);
+  if (values) {
+    for (int i = 0; i < 4; ++i) values[i] = copy[i];
+  }
+  return state;
+}
 extern "C" __declspec(dllexport) int dtvr_set_projection_active(int enabled) {
   const auto event = shared_projection_active_event();
   if (!event) {

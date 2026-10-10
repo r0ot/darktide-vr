@@ -680,6 +680,31 @@ function presentation.native_export(library, name)
     return known
 end
 
+-- The stereo particle fix (src/producer/particle_simulation_once): its state at
+-- install and its counters every minute, in this log because a game launch
+-- cannot be relied on to write its own file (10 October 2026: it logged
+-- nothing from the game while the test processes' lines appeared). Nil with
+-- a native module that predates it.
+function presentation.particle_fix_reporter(ffi, library)
+    local found, read = pcall(function() return library.dtvr_particle_simulation_once_state end)
+    if not found or not read then return nil end
+    local values = ffi.new("unsigned long long[4]")
+    local names = {[0] = "not_asked", "installed", "off", "declined", "failed", "no_frame_reader"}
+    local next_t
+    local function report(force)
+        local t = Managers and Managers.time and Managers.time:time("main") or 0
+        if not force and next_t and t >= next_t - 60 and t < next_t then return end
+        next_t = t + 60
+        local ok, state = pcall(read, values)
+        if not ok then return end
+        mod:info("DARKTIDEVR_PARTICLE_FIX state=%s renders=%d simulated=%d suppressed=%d detail=%x",
+            names[state] or tostring(state), tonumber(values[0]), tonumber(values[1]),
+            tonumber(values[2]), tonumber(values[3]))
+    end
+    report(true)
+    return report
+end
+
 local function ensure_ui_native_hooks()
     if ui_native_capture then
         return true
@@ -732,6 +757,7 @@ local function ensure_ui_native_hooks()
         int dtvr_viewer_control(int enabled);
         int dtvr_viewer_state(int* values, unsigned int count);
         int dtvr_bootstrap_state(void);
+        int dtvr_particle_simulation_once_state(unsigned long long* values);
         int dtvr_set_virtual_client_extent(int enabled);
         int dtvr_set_virtual_size_message(int enabled);
         int dtvr_lock_swapchain_client_extent(int enabled);
@@ -1139,6 +1165,7 @@ local function ensure_ui_native_hooks()
     ui_native_capture.dtvr_set_gpu_eye_profile(
         performance_profile_requested and 1 or 0)
     mod:info("DARKTIDEVR_STEREO native_hooks installed")
+    presentation.report_particle_fix = presentation.particle_fix_reporter(ffi, library)
     if billboard_shader_substitution_requested then
         mod:info(
             "DARKTIDEVR_STEREO billboard_shader_substitution applied=%d rejected=%d",
@@ -12563,6 +12590,9 @@ mod:hook_safe(
         end
         if presentation.particle_census then
             presentation.particle_census.update(self._world)
+        end
+        if presentation.report_particle_fix then
+            presentation.report_particle_fix()
         end
         if presentation.item_radial then
             presentation.frame_profile.section("draw.item_radial", presentation.item_radial.draw, self._world)

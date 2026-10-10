@@ -91,6 +91,8 @@ struct Stripe {
 std::array<Stripe, kStripes> stripes{};
 
 std::atomic<std::uint64_t> simulated{}, suppressed{}, renders{};
+std::atomic<int> install_state{};
+std::atomic<std::uint64_t> install_detail{};
 std::atomic<ULONGLONG> next_report{};
 std::wstring log_path;
 
@@ -196,10 +198,12 @@ bool install_particle_simulation_once(HMODULE module, ParticleFrameReader frame)
     log_path += L"\\particle-simulation-once.log";
   }
   if (switched_off(beside(module, L"darktidevr_particle_simulation_once.flag"))) {
+    install_state.store(2);
     log_line("particle_simulation_once=off reason=flag");
     return true;
   }
   if (!frame) {
+    install_state.store(5);
     log_line("particle_simulation_once=declined reason=no_frame_reader");
     return true;
   }
@@ -212,6 +216,8 @@ bool install_particle_simulation_once(HMODULE module, ParticleFrameReader frame)
       std::snprintf(text, sizeof(text),
                     "particle_simulation_once=declined reason=signature rva=%llx",
                     static_cast<unsigned long long>(site.rva));
+      install_detail.store(site.rva);
+      install_state.store(3);
       log_line(text);
       return true;
     }
@@ -219,11 +225,23 @@ bool install_particle_simulation_once(HMODULE module, ParticleFrameReader frame)
   frame_reader = frame;
   if (MH_CreateHook(base + kRender, reinterpret_cast<void*>(&render_hook),
                     reinterpret_cast<void**>(&original)) != MH_OK) {
+    install_state.store(4);
     log_line("particle_simulation_once=failed reason=create_hook");
     return false;
   }
+  install_state.store(1);
   log_line("particle_simulation_once=installed build=25681127 rva=5758b0");
   return true;
+}
+
+int particle_simulation_once_state(std::uint64_t values[4]) {
+  if (values) {
+    values[0] = renders.load(std::memory_order_relaxed);
+    values[1] = simulated.load(std::memory_order_relaxed);
+    values[2] = suppressed.load(std::memory_order_relaxed);
+    values[3] = install_detail.load(std::memory_order_relaxed);
+  }
+  return install_state.load();
 }
 
 }  // namespace darktidevr::producer

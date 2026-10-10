@@ -31,4 +31,10 @@ inline bool particle_simulated_already(ParticleSimulationSeen& seen, std::uint64
 // darktidevr_particle_simulation_once.flag beside the module says "off";
 // false only when MinHook refuses a hook it was given.
 bool install_particle_simulation_once(HMODULE module, ParticleFrameReader frame);
+
+// For the mod's own log, which a game launch can always write: 0 not yet
+// asked, 1 installed, 2 turned off by the flag, 3 declined on a signature
+// (detail = its RVA), 4 MinHook refused, 5 no frame reader. values receives
+// renders, renders that simulated, renders that were suppressed, detail.
+int particle_simulation_once_state(std::uint64_t values[4]);
 }  // namespace darktidevr::producer
