@@ -146,15 +146,6 @@ struct FirstPass {
 std::array<FirstPass, 64> first_pass{};
 std::atomic<std::uint64_t> first_pass_frame{~0ull};
 
-// An owner with no emitters and no counts: the renderer takes its normal path,
-// allocates nothing and draws nothing, and its caller's buffer protocol is
-// unchanged. Per thread, because renders run on many.
-std::uint8_t* stand_in_for(const OwnerView& stale) {
-  alignas(64) thread_local std::array<std::uint8_t, 0x1000> stand_in{};
-  stand_in.fill(0);
-  std::memcpy(stand_in.data() + 0x240, &stale.id, sizeof(stale.id));
-  return stand_in.data();
-}
 std::wstring log_directory;
 
 // Visualizers being updated right now, by which thread.
@@ -274,10 +265,13 @@ std::uint64_t owner_hook(void* owner, std::uint64_t a2, std::uint64_t a3, std::u
     stand_ins.fetch_add(1, std::memory_order_relaxed);
     if (garbage(before)) stand_in_garbage.fetch_add(1, std::memory_order_relaxed);
     record(owner_stand_in, owner, &before);
-    // Never read the destroyed object again: it may already belong to
-    // something else.
-    return original_owner(stand_in_for(before), a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13,
-                          a14, a15, a16, a17, a18, a19, a20);
+    // Not drawn, and never read again: it may already belong to something
+    // else. The caller (0x3883cd..0x3884f0) allocates its scratch block before
+    // every call and frees it after while its capacity is non-zero, which a
+    // call that never happened leaves as the caller set it; the return value
+    // is unused. (A zeroed stand-in object, the first version, crashed: the
+    // owner reads [rsi+8]->+0x24 with no emitters at 0x47e6cb, launch 17.)
+    return 0;
   }
   if (garbage(before)) {
     garbage_seen.fetch_add(1);

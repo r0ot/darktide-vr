@@ -797,3 +797,17 @@ the second eye alone sees (never in the first pass, or gone from it longer
 than the window) still draw. `darktidevr_particle_stand_in.flag` saying `off`
 beside the module turns it off; counters in `DARKTIDEVR_PARTICLE_TRACE`
 (`stand_ins`, `stand_in_garbage`). The garbage check stays log-only.
+
+**Launch 17: the stand-in crashed, so the skip replaces it.** Seconds into
+the same mission's opening shot: an access violation reading `0x24` at
+`0x47e6cf`, called through the stand-in path (804 stand-ins used before it;
+error context `77a53f32b6449276` again). With no emitters the owner still
+reads `mov rax,[rsi+8]; cmp [rax+0x24], r14d` at `0x47e6cb`, and the zeroed
+stand-in has no `+8`: a fake object is not safe. The caller's protocol makes
+skipping the call safe instead: before every owner call it zeroes the scratch
+descriptor at `[rbp-0x70]`, allocates a block through its allocator
+(`vtable+0x80`, up to `0x800`) and sets a non-zero capacity; after it, while
+the capacity is non-zero, it frees that block itself (`vtable+0x98`) and
+resets the descriptor (`0x3884c4..0x3884f0`); the return value is unused. So
+the second-eye render of a just-destroyed system is now skipped outright and
+the object never read again.

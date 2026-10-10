@@ -16,8 +16,8 @@ namespace darktidevr::producer {
 // darktidevr_particle_trace.flag beside the module says "off".
 bool install_particle_trace(HMODULE module, ParticleEyeReader eye);
 
-// Whether the second eye's render of a particle system should get an empty
-// stand-in instead (10 October 2026, trace launch 16: in frame 12939 the stock
+// Whether the second eye's render of a particle system should be skipped
+// (10 October 2026, trace launch 16: in frame 12939 the stock
 // pass no longer drew system 1ec2444c780, the engine having destroyed it, and
 // the second eye's pass drew it from freed, reused memory). A system the first
 // pass drew this frame is live; one it drew within the last `window` frames
@@ -39,6 +39,6 @@ void particle_trace_note_render(const void* visualizer);
 // updates, renders overlapping an update of the same visualizer, owner
 // renders whose counts changed during the call, garbage owners reaching the
 // engine, dumps written, records in the ring, detail, second-eye renders
-// given the stand-in, of which with garbage counts.
+// skipped as just destroyed, of which with garbage counts.
 int particle_trace_state(std::uint64_t values[10]);
 }  // namespace darktidevr::producer
