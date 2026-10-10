@@ -62,6 +62,8 @@ DEFAULT_VR_FLAGS = {
     "darktidevr_motion_smoothing.flag": "off",
     "darktidevr_hide_dashboard.flag": "on",
     "darktidevr_eye_extent.flag": "2160x2160",
+    # The game's frame rate low in the view (darktidevr_frame_rate_display.lua).
+    "darktidevr_frame_rate_display.flag": "on",
 }
 
 

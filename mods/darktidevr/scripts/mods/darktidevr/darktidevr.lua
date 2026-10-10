@@ -12554,6 +12554,9 @@ mod:hook_safe(
         if presentation.wrist_display then
             presentation.frame_profile.section("draw.wrist_display", presentation.wrist_display.draw, self._world, player_unit)
         end
+        if presentation.frame_rate_display then
+            presentation.frame_profile.section("draw.frame_rate_display", presentation.frame_rate_display.draw, self._world, player_unit)
+        end
         if presentation.item_radial then
             presentation.frame_profile.section("draw.item_radial", presentation.item_radial.draw, self._world)
         end
@@ -16301,6 +16304,9 @@ presentation.skull_throw = mod:io_dofile(
 presentation.wrist_display = mod:io_dofile(
     "darktidevr/scripts/mods/darktidevr/darktidevr_wrist_display"
 ).install(mod, presentation, controller_observation)
+presentation.frame_rate_display = mod:io_dofile(
+    "darktidevr/scripts/mods/darktidevr/darktidevr_frame_rate_display"
+).install(mod, presentation)
 presentation.holster_counts = mod:io_dofile(
     "darktidevr/scripts/mods/darktidevr/darktidevr_holster_counts"
 ).install(mod, presentation)
@@ -16869,6 +16875,7 @@ mod.on_game_state_changed = function(status, state_name)
         if presentation.ammo_readout then pcall(presentation.ammo_readout.destroy) end
         if presentation.holster_counts then pcall(presentation.holster_counts.destroy) end
         if presentation.wrist_display then pcall(presentation.wrist_display.destroy) end
+        if presentation.frame_rate_display then pcall(presentation.frame_rate_display.destroy) end
         if presentation.forearm_holsters then pcall(presentation.forearm_holsters.destroy) end
         if presentation.teammate_status then pcall(presentation.teammate_status.destroy) end
         if presentation.rig_scan then pcall(presentation.rig_scan.destroy) end
@@ -16918,6 +16925,7 @@ mod.on_disabled = function()
     if presentation.ammo_readout then pcall(presentation.ammo_readout.destroy) end
     if presentation.holster_counts then pcall(presentation.holster_counts.destroy) end
     if presentation.wrist_display then pcall(presentation.wrist_display.destroy) end
+    if presentation.frame_rate_display then pcall(presentation.frame_rate_display.destroy) end
     if presentation.forearm_holsters then pcall(presentation.forearm_holsters.destroy) end
     if presentation.teammate_status then pcall(presentation.teammate_status.destroy) end
     if presentation.rig_scan then pcall(presentation.rig_scan.destroy) end
@@ -16946,6 +16954,7 @@ mod.on_unload = function()
     if presentation.ammo_readout then pcall(presentation.ammo_readout.destroy) end
     if presentation.holster_counts then pcall(presentation.holster_counts.destroy) end
     if presentation.wrist_display then pcall(presentation.wrist_display.destroy) end
+    if presentation.frame_rate_display then pcall(presentation.frame_rate_display.destroy) end
     if presentation.forearm_holsters then pcall(presentation.forearm_holsters.destroy) end
     if presentation.teammate_status then pcall(presentation.teammate_status.destroy) end
     if presentation.rig_scan then pcall(presentation.rig_scan.destroy) end
