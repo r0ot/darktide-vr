@@ -707,7 +707,7 @@ function presentation.particle_fix_reporter(ffi, library)
         if trace then
             local traced, trace_state = pcall(trace, trace_values)
             if traced then
-                mod:info("DARKTIDEVR_PARTICLE_TRACE state=%s owners=%d updates=%d render_during_update=%d owner_changed=%d garbage=%d dumps=%d records=%d detail=%x stand_ins=%d stand_in_garbage=%d changed_skips=%d",
+                mod:info("DARKTIDEVR_PARTICLE_TRACE state=%s owners=%d updates=%d render_during_update=%d owner_changed=%d garbage=%d dumps=%d records=%d detail=%x earlier_skips=%d unseen_skips=%d changed_skips=%d",
                     names[trace_state] or tostring(trace_state), tonumber(trace_values[0]),
                     tonumber(trace_values[1]), tonumber(trace_values[2]), tonumber(trace_values[3]),
                     tonumber(trace_values[4]), tonumber(trace_values[5]), tonumber(trace_values[6]),

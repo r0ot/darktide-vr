@@ -16,27 +16,21 @@ namespace darktidevr::producer {
 // darktidevr_particle_trace.flag beside the module says "off".
 bool install_particle_trace(HMODULE module, ParticleEyeReader eye);
 
-// Whether the second eye's render of a particle system should be skipped
-// (10 October 2026, trace launch 16: in frame 12939 the stock
-// pass no longer drew system 1ec2444c780, the engine having destroyed it, and
-// the second eye's pass drew it from freed, reused memory). A system the first
-// pass drew this frame is live; one it drew within the last `window` frames
-// but not this one has just been destroyed. Nothing is decided in a frame
-// whose first pass has not run. Pure.
-inline bool particle_stale_in_second_eye(bool known, std::uint64_t last_first_pass,
-                                         std::uint64_t frame, std::uint64_t first_pass_frame,
-                                         std::uint64_t window = 8) {
-  if (!known || first_pass_frame != frame || last_first_pass == frame) return false;
-  return frame > last_first_pass && frame - last_first_pass <= window;
-}
-
-// Whether the second eye's render of a system the stock pass drew this same
-// frame should be skipped because the system no longer looks as it did then
-// (launch 18: torn down by the game between the two passes, within one frame).
-// `unchanged`: its counts, arrays, id and [+8] match the stock pass's. Pure.
-inline bool particle_changed_since_first_pass(bool known, std::uint64_t last_first_pass,
+// Whether the second eye draws a particle system (10 October 2026). The second
+// eye's pass meets systems the engine has destroyed: ones the stock pass
+// stopped drawing frames ago (launch 16 one frame, launch 19 twelve) and ones
+// torn down between the two passes of one frame (launch 18), all from freed,
+// reused memory. So it draws only a system the stock pass drew this same frame
+// and that still looks as it did then (`unchanged`: counts, arrays, id and
+// [+8]); in the traces that is 99.2% of its draws. The rest are skipped:
+// systems the stock pass drew in an earlier frame, ones it never drew (seen
+// by the second eye alone, at the edge of its view), and changed ones. Pure.
+enum class SecondEyeDraw { draw, skip_earlier, skip_unseen, skip_changed };
+inline SecondEyeDraw particle_second_eye_draw(bool known, std::uint64_t last_first_pass,
                                               std::uint64_t frame, bool unchanged) {
-  return known && last_first_pass == frame && !unchanged;
+  if (!known) return SecondEyeDraw::skip_unseen;
+  if (last_first_pass != frame) return SecondEyeDraw::skip_earlier;
+  return unchanged ? SecondEyeDraw::draw : SecondEyeDraw::skip_changed;
 }
 
 // Called by the GPU visualizer hook for every render of one visualizer: notes
@@ -47,8 +41,8 @@ void particle_trace_note_render(const void* visualizer);
 // signature (values[7] = its RVA), 4 MinHook refused. values: owner renders,
 // updates, renders overlapping an update of the same visualizer, owner
 // renders whose counts changed during the call, garbage owners reaching the
-// engine, dumps written, records in the ring, detail, second-eye renders
-// skipped as just destroyed, of which with garbage counts, second-eye renders
-// skipped as changed since the stock pass drew them this frame.
+// engine, dumps written, records in the ring, detail, and second-eye renders
+// skipped (particle_second_eye_draw) as drawn by the stock pass only in an
+// earlier frame, as never drawn by it, and as changed since it drew them.
 int particle_trace_state(std::uint64_t values[11]);
 }  // namespace darktidevr::producer

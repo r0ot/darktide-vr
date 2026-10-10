@@ -43,28 +43,20 @@ int main() {
   ParticleSimulationSeen fresh{};
   expect(!particle_simulated_already(fresh, 0, 0, 0), "an empty record never suppresses");
 
-  // The second eye's stand-in rule (particle_trace.h), from the launch-16 trace:
-  // drawn by the first pass in frame 12938, missing from it in 12939.
-  using darktidevr::producer::particle_stale_in_second_eye;
-  expect(particle_stale_in_second_eye(true, 12938, 12939, 12939), "just destroyed: stand-in");
-  expect(!particle_stale_in_second_eye(true, 12939, 12939, 12939), "drawn by the first pass this frame: live");
-  expect(!particle_stale_in_second_eye(false, 0, 12939, 12939),
-         "never drawn by a first pass (visible to the second eye only): drawn");
-  expect(!particle_stale_in_second_eye(true, 12900, 12939, 12939),
-         "gone from the first pass long ago (second eye only now): drawn");
-  expect(particle_stale_in_second_eye(true, 12931, 12939, 12939), "within the window");
-  expect(!particle_stale_in_second_eye(true, 12930, 12939, 12939), "just outside the window");
-  expect(!particle_stale_in_second_eye(true, 12938, 12939, 12938),
-         "this frame's first pass has not run: nothing decided");
-
-  // Launch 18: drawn by the stock pass in frame 11075, torn down before the
-  // second eye reached it in the same frame.
-  using darktidevr::producer::particle_changed_since_first_pass;
-  expect(particle_changed_since_first_pass(true, 11075, 11075, false), "torn down since this frame's draw: skip");
-  expect(!particle_changed_since_first_pass(true, 11075, 11075, true), "unchanged since this frame's draw: drawn");
-  expect(!particle_changed_since_first_pass(true, 11074, 11075, false),
-         "last drawn an earlier frame: the stale rule decides");
-  expect(!particle_changed_since_first_pass(false, 0, 11075, false), "never drawn by a first pass: drawn");
+  // The second eye's rule (particle_trace.h): draw only what the stock pass
+  // drew this frame, unchanged.
+  using darktidevr::producer::particle_second_eye_draw;
+  using darktidevr::producer::SecondEyeDraw;
+  expect(particle_second_eye_draw(true, 12939, 12939, true) == SecondEyeDraw::draw,
+         "drawn by the stock pass this frame, unchanged: drawn");
+  expect(particle_second_eye_draw(true, 11075, 11075, false) == SecondEyeDraw::skip_changed,
+         "launch 18: torn down since this frame's stock draw");
+  expect(particle_second_eye_draw(true, 12938, 12939, true) == SecondEyeDraw::skip_earlier,
+         "launch 16: gone from the stock pass one frame");
+  expect(particle_second_eye_draw(true, 12233, 12245, true) == SecondEyeDraw::skip_earlier,
+         "launch 19: gone from the stock pass twelve frames");
+  expect(particle_second_eye_draw(false, 0, 12939, true) == SecondEyeDraw::skip_unseen,
+         "never drawn by the stock pass");
 
   if (failures != 0) return EXIT_FAILURE;
   std::printf("particle_simulation_once=pass first_simulates second_draws next_update unvisited_frame "

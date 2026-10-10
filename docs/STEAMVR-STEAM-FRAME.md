@@ -827,3 +827,19 @@ second eye also skips a system it drew this frame that no longer matches
 game changes between the passes is skipped in that eye for that frame only. A
 teardown during the second eye's own call remains possible; making the game
 defer destruction until both passes have drawn would close that.
+
+**Launch 19: twelve frames out of the window, so the second eye draws only
+what the stock pass drew.** Past the opening section, the moment a teammate
+started attacking: garbage on the owner's entry (array `0x3f8000003e34f12e`,
+count 1,130,292,904), then the access violation reading `-1` at `0x47e1b6`
+(`ParticleSystem #ID[5b89e0aaff7f59e5]`). Object `2bf6356bc00` was last drawn
+by the stock pass in frame 12233; the second eye met it from reused memory in
+frame 12245, beyond the 8-frame window. Across the launch 18 and 19 traces,
+99.2% of second-eye draws (16,910) were of systems the stock pass had drawn
+that same frame; 128 were of systems it had last drawn 1 to 26 frames earlier,
+and 4 of systems it never drew. Guessing which leftovers are alive is what kept
+failing, so the rule is now positive (`particle_second_eye_draw`): the second
+eye draws a system only when the stock pass drew it this frame and it is
+unchanged, and skips the rest (`earlier_skips`, `unseen_skips`,
+`changed_skips`). The cost is an effect seen by the second eye alone, at the
+edge of its view, missing from that eye.

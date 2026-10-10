@@ -134,11 +134,11 @@ std::atomic<int> install_state{};
 std::atomic<std::uint64_t> install_detail{}, owners{}, updates{}, overlaps{}, changes{},
     garbage_seen{}, dumps{};
 std::atomic<bool> dumped{};
-std::atomic<std::uint64_t> stand_ins{}, stand_in_garbage{}, changed_skips{};
+std::atomic<std::uint64_t> stand_ins{}, unseen_skips{}, changed_skips{};
 bool stand_in_enabled = true;
 
 // The frame each owner was last drawn by a first (stock) pass and how it
-// looked then, and the last frame any first pass ran.
+// looked then.
 struct FirstPassDraw {
   std::uint64_t frame{};
   OwnerView view{};
@@ -149,7 +149,6 @@ struct FirstPass {
   std::uint64_t pruned{};
 };
 std::array<FirstPass, 64> first_pass{};
-std::atomic<std::uint64_t> first_pass_frame{~0ull};
 
 std::wstring log_directory;
 
@@ -245,14 +244,13 @@ std::uint64_t owner_hook(void* owner, std::uint64_t a2, std::uint64_t a3, std::u
   owners.fetch_add(1, std::memory_order_relaxed);
   const auto before = read_owner(owner);
   record(owner_enter, owner, &before);
-  bool stale = false, changed = false;
+  SecondEyeDraw verdict = SecondEyeDraw::draw;
   if (stand_in_enabled && eye_reader) {
     const auto eye = eye_reader();
     auto& pass = first_pass[(reinterpret_cast<std::uintptr_t>(owner) >> 6) % first_pass.size()];
     std::scoped_lock lock(pass.mutex);
     if (eye.eye != 1) {
       pass.last[owner] = FirstPassDraw{eye.present, before};
-      first_pass_frame.store(eye.present, std::memory_order_relaxed);
       if (eye.present > pass.pruned + 600) {
         for (auto it = pass.last.begin(); it != pass.last.end();) {
           it = it->second.frame + 600 < eye.present ? pass.last.erase(it) : std::next(it);
@@ -262,16 +260,15 @@ std::uint64_t owner_hook(void* owner, std::uint64_t a2, std::uint64_t a3, std::u
     } else {
       const auto it = pass.last.find(owner);
       const bool known = it != pass.last.end();
-      const auto drawn = known ? it->second.frame : 0;
-      stale = particle_stale_in_second_eye(known, drawn, eye.present,
-                                           first_pass_frame.load(std::memory_order_relaxed));
-      changed = particle_changed_since_first_pass(known, drawn, eye.present,
-                                                  known && same(it->second.view, before));
+      verdict = particle_second_eye_draw(known, known ? it->second.frame : 0, eye.present,
+                                         known && same(it->second.view, before));
     }
   }
-  if (stale || changed) {
-    (changed ? changed_skips : stand_ins).fetch_add(1, std::memory_order_relaxed);
-    if (garbage(before)) stand_in_garbage.fetch_add(1, std::memory_order_relaxed);
+  if (verdict != SecondEyeDraw::draw) {
+    (verdict == SecondEyeDraw::skip_changed  ? changed_skips
+     : verdict == SecondEyeDraw::skip_unseen ? unseen_skips
+                                             : stand_ins)
+        .fetch_add(1, std::memory_order_relaxed);
     record(owner_stand_in, owner, &before);
     // Not drawn, and never read again: it may already belong to something
     // else. The caller (0x3883cd..0x3884f0) allocates its scratch block before
@@ -283,6 +280,9 @@ std::uint64_t owner_hook(void* owner, std::uint64_t a2, std::uint64_t a3, std::u
     // the second eye reaches it (launch 18: 2a926b58780 drawn with one
     // emitter, then met 2.5 ms later with none and [+8] = 0x3f7ff4db), so the
     // second eye also skips one that no longer looks as the stock pass saw it.
+    // And one the stock pass last drew 12 frames earlier came back to the
+    // second eye as garbage (launch 19), past any window: so the second eye
+    // now draws only what the stock pass drew this frame, unchanged.
     return 0;
   }
   if (garbage(before)) {
@@ -434,7 +434,7 @@ int particle_trace_state(std::uint64_t values[11]) {
     values[6] = next_record.load(std::memory_order_relaxed);
     values[7] = install_detail.load(std::memory_order_relaxed);
     values[8] = stand_ins.load(std::memory_order_relaxed);
-    values[9] = stand_in_garbage.load(std::memory_order_relaxed);
+    values[9] = unseen_skips.load(std::memory_order_relaxed);
     values[10] = changed_skips.load(std::memory_order_relaxed);
   }
   return install_state.load();
