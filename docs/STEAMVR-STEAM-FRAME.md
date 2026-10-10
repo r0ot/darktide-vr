@@ -732,6 +732,22 @@ and the out-of-memory dialog are the same failure.
   once per particle update and renders the second eye from the same result.
   It would also remove duplicated GPU work.
 
+**Launches 14 and 15: the duplicate simulation was real, and not the cause.**
+`particle_simulation_once` (`c758775`) logged nothing from the game to its
+file in launch 14 (state unknown; the session crashed as before). From
+`fd26535` it reports to the console log: launch 15 `state=installed`, and
+by the crash `renders=2615793 simulated=397228 suppressed=389586` -- half of
+all simulating renders were the second eye's duplicates, confirming the
+double simulation. The crash came anyway, the same RVA after four minutes of
+Psykhanium melee (`ParticleSystem #ID[a0fa83a1820c69b3]`, a third system;
+Darktide's private bytes 10.5 GB to 69 GB in five seconds). So garbage
+counts do not come from the doubled simulation. The remaining explanation is
+a render-side particle object freed or reused while the rendering owner
+(`0x47de30`, `rsi`; arrays at `+0x68..0x78`, counts at `+0xa0/+0xb8/+0xd0`)
+still reads it, e.g. destruction timed for one render per frame meeting the
+second eye's `render_world`. The fix stays in (it halves GPU particle work)
+pending a worn check that particles look right in both eyes.
+
 **Frame rate at DLSS Performance:** about 60 pairs a second against 50-65 at
 Balanced, so the GPU resolution is not what limits it. This matches the
 author's finding on a 4090 (`LUA-FRAME-PROFILE-2026-09-16.md`): the engine
