@@ -748,6 +748,22 @@ still reads it, e.g. destruction timed for one render per frame meeting the
 second eye's `render_world`. The fix stays in (it halves GPU particle work)
 pending a worn check that particles look right in both eyes.
 
+- The fix's file log did reach `%LOCALAPPDATA%\DarktideVR` in launch 14 too
+  (installed at 10:35:49, suppressing): Claude's own processes see a
+  virtualized `%LOCALAPPDATA%` (the desktop app is an MSIX package), so files
+  the game writes there are hidden from them and must be copied out by a
+  process started outside the package (WMI). The settings guard's "silent"
+  log was the same illusion; it logs every session.
+- **Trace for the next session** (`src/producer/particle_trace.cpp`, observing
+  only): hooks the rendering owner `0x47de30` and the update `0x573f40` and
+  rings every call with thread, frame, eye and the owner's id, array and
+  counts on entry and exit; notes every GPU visualizer render that overlaps
+  an update of the same visualizer; writes the ring to
+  `%LOCALAPPDATA%\DarktideVR\particle-trace-<pid>.log` on garbage counts at
+  owner entry or exit, or on an access violation inside Darktide.exe (the
+  known crash flagged). Counters reach the console log every minute as
+  `DARKTIDEVR_PARTICLE_TRACE`.
+
 **Frame rate at DLSS Performance:** about 60 pairs a second against 50-65 at
 Balanced, so the GPU resolution is not what limits it. This matches the
 author's finding on a 4090 (`LUA-FRAME-PROFILE-2026-09-16.md`): the engine

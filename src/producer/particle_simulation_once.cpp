@@ -24,6 +24,7 @@
 // never skipped, and a system the update did not visit keeps stock behaviour.
 #include "producer/particle_simulation_once.h"
 #include "producer/guarded_copy.h"
+#include "producer/particle_trace.h"
 
 #include <MinHook.h>
 
@@ -130,6 +131,7 @@ void render_hook(void* system, std::uint64_t a2, std::uint64_t a3, std::uint64_t
                  std::uint64_t a13, std::uint64_t a14, std::uint64_t a15, std::uint64_t a16,
                  std::uint64_t a17, std::uint64_t a18, std::uint64_t a19, std::uint64_t a20) {
   renders.fetch_add(1, std::memory_order_relaxed);
+  particle_trace_note_render(system);
   auto* bytes = static_cast<std::uint8_t*>(system);
   const std::uint8_t flag = bytes ? bytes[kFlag] : 0;
   bool suppress = false;

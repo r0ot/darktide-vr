@@ -690,6 +690,10 @@ function presentation.particle_fix_reporter(ffi, library)
     if not found or not read then return nil end
     local values = ffi.new("unsigned long long[4]")
     local names = {[0] = "not_asked", "installed", "off", "declined", "failed", "no_frame_reader"}
+    -- The particle crash trace (src/producer/particle_trace), when the module has it.
+    local has_trace, trace = pcall(function() return library.dtvr_particle_trace_state end)
+    if not has_trace then trace = nil end
+    local trace_values = trace and ffi.new("unsigned long long[8]")
     local next_t
     local function report(force)
         local t = Managers and Managers.time and Managers.time:time("main") or 0
@@ -700,6 +704,16 @@ function presentation.particle_fix_reporter(ffi, library)
         mod:info("DARKTIDEVR_PARTICLE_FIX state=%s renders=%d simulated=%d suppressed=%d detail=%x",
             names[state] or tostring(state), tonumber(values[0]), tonumber(values[1]),
             tonumber(values[2]), tonumber(values[3]))
+        if trace then
+            local traced, trace_state = pcall(trace, trace_values)
+            if traced then
+                mod:info("DARKTIDEVR_PARTICLE_TRACE state=%s owners=%d updates=%d render_during_update=%d owner_changed=%d garbage=%d dumps=%d records=%d detail=%x",
+                    names[trace_state] or tostring(trace_state), tonumber(trace_values[0]),
+                    tonumber(trace_values[1]), tonumber(trace_values[2]), tonumber(trace_values[3]),
+                    tonumber(trace_values[4]), tonumber(trace_values[5]), tonumber(trace_values[6]),
+                    tonumber(trace_values[7]))
+            end
+        end
     end
     report(true)
     return report
@@ -758,6 +772,7 @@ local function ensure_ui_native_hooks()
         int dtvr_viewer_state(int* values, unsigned int count);
         int dtvr_bootstrap_state(void);
         int dtvr_particle_simulation_once_state(unsigned long long* values);
+        int dtvr_particle_trace_state(unsigned long long* values);
         int dtvr_set_virtual_client_extent(int enabled);
         int dtvr_set_virtual_size_message(int enabled);
         int dtvr_lock_swapchain_client_extent(int enabled);

@@ -10,6 +10,7 @@
 #include "producer/present_cpu_profile.h"
 #include "producer/particle_submission_probe.h"
 #include "producer/particle_simulation_once.h"
+#include "producer/particle_trace.h"
 #include "producer/compute_dispatch_probe.h"
 #include "producer/native_original_ring.h"
 #include "producer/engine_preparation_probe.h"
@@ -14024,6 +14025,18 @@ int install_hooks(ID3D12Device* supplied_device = nullptr) {
         }
         return context;
       }) ||
+      // Observes only; declines on any other build. See particle_trace.cpp.
+      !darktidevr::producer::install_particle_trace(native_capture_module, +[] {
+        darktidevr::producer::ParticleEyeContext context;
+        context.present = present_count.load(std::memory_order_relaxed);
+        std::scoped_lock lock(boundary_capture_mutex);
+        context.queued = armed_eye_captures.size();
+        if (context.queued == 1) {
+          context.eye = armed_eye_captures.front().eye;
+          context.pose = armed_eye_captures.front().pose_sequence;
+        }
+        return context;
+      }) ||
       // Declines on any other build; see particle_simulation_once.cpp.
       !darktidevr::producer::install_particle_simulation_once(native_capture_module, +[] {
         return static_cast<std::uint64_t>(present_count.load(std::memory_order_relaxed));
@@ -15922,6 +15935,16 @@ extern "C" __declspec(dllexport) int dtvr_particle_simulation_once_state(
   const auto state = darktidevr::producer::particle_simulation_once_state(copy);
   if (values) {
     for (int i = 0; i < 4; ++i) values[i] = copy[i];
+  }
+  return state;
+}
+// The particle crash trace's state and counters (see particle_trace.h);
+// values must hold eight.
+extern "C" __declspec(dllexport) int dtvr_particle_trace_state(unsigned long long* values) {
+  std::uint64_t copy[8]{};
+  const auto state = darktidevr::producer::particle_trace_state(copy);
+  if (values) {
+    for (int i = 0; i < 8; ++i) values[i] = copy[i];
   }
   return state;
 }
