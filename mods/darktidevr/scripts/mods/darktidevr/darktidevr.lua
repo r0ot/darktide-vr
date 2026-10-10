@@ -693,7 +693,7 @@ function presentation.particle_fix_reporter(ffi, library)
     -- The particle crash trace (src/producer/particle_trace), when the module has it.
     local has_trace, trace = pcall(function() return library.dtvr_particle_trace_state end)
     if not has_trace then trace = nil end
-    local trace_values = trace and ffi.new("unsigned long long[11]")
+    local trace_values = trace and ffi.new("unsigned long long[12]")
     local next_t
     local function report(force)
         local t = Managers and Managers.time and Managers.time:time("main") or 0
@@ -707,12 +707,12 @@ function presentation.particle_fix_reporter(ffi, library)
         if trace then
             local traced, trace_state = pcall(trace, trace_values)
             if traced then
-                mod:info("DARKTIDEVR_PARTICLE_TRACE state=%s owners=%d updates=%d render_during_update=%d owner_changed=%d garbage=%d dumps=%d records=%d detail=%x earlier_skips=%d unseen_skips=%d changed_skips=%d",
+                mod:info("DARKTIDEVR_PARTICLE_TRACE state=%s owners=%d updates=%d render_during_update=%d owner_changed=%d garbage=%d dumps=%d records=%d detail=%x earlier_skips=%d unseen_skips=%d changed_skips=%d guard_skips=%d",
                     names[trace_state] or tostring(trace_state), tonumber(trace_values[0]),
                     tonumber(trace_values[1]), tonumber(trace_values[2]), tonumber(trace_values[3]),
                     tonumber(trace_values[4]), tonumber(trace_values[5]), tonumber(trace_values[6]),
                     tonumber(trace_values[7]), tonumber(trace_values[8]), tonumber(trace_values[9]),
-                    tonumber(trace_values[10]))
+                    tonumber(trace_values[10]), tonumber(trace_values[11]))
             end
         end
     end

@@ -857,3 +857,19 @@ particle render from every render worker. The armed eye is now published to
 an atomic at every change to the queue (`armed_eye_head`) and read without
 the lock; `darktidevr_particle_trace.flag` saying `off` now stops only the
 recording, leaving the second-eye rule on.
+
+**Launch 22: the second eye labelled as the stock pass, so the guard.** At
+the start of a mission after a long Psykhanium session, an out-of-memory
+crash: the trace dumped garbage on entry in a pass labelled `eye=-1` (object
+`1941c2b8280`, id field holding a pointer, counts of 2.79 billion), a system
+last drawn in frame 84661 and met again in 84673. Frames 84669 and 84673 had
+about 320 owner renders labelled `-1` and none labelled `1`: both passes read
+as the stock pass, because the capture queue held no single eye while the
+second one ran (84667 was mixed, 148 against 164). The second-eye rule only
+works where the label is right. Two changes: the garbage check now refuses
+the render in any pass (`guard_skips`; `darktidevr_particle_guard.flag` saying
+`off` turns it off), with `[+8]->+0x24` probed as readable memory as well as
+the counts (launch 17's `0x3f7ff4db`); and the trace records the owner's
+second to fifth arguments and the queue length on every entry, writing one
+sample ring (`particle-trace-<pid>-sample.log`) after three million owner
+renders, to find an argument that names the pass.

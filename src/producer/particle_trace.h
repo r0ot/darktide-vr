@@ -45,6 +45,7 @@ void particle_trace_note_render(const void* visualizer);
 // renders whose counts changed during the call, garbage owners reaching the
 // engine, dumps written, records in the ring, detail, and second-eye renders
 // skipped (particle_second_eye_draw) as drawn by the stock pass only in an
-// earlier frame, as never drawn by it, and as changed since it drew them.
-int particle_trace_state(std::uint64_t values[11]);
+// earlier frame, as never drawn by it, and as changed since it drew them, and
+// renders the guard refused as freed memory (any pass).
+int particle_trace_state(std::uint64_t values[12]);
 }  // namespace darktidevr::producer

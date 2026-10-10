@@ -65,6 +65,9 @@ struct OwnerView {
   std::uint64_t id{}, array{}, plus8{};
   std::uint32_t count{}, a0{}, b8{}, d0{};
   bool readable{};
+  // [+8]->+0x24, which the owner reads even with no emitters (0x47e6cb), is
+  // readable memory; true when [+8] is null, which this never decides on.
+  bool plus8_readable{};
 };
 OwnerView read_owner(const void* owner) {
   OwnerView view{};
@@ -76,12 +79,16 @@ OwnerView read_owner(const void* owner) {
                   safe_copy_bytes(&view.a0, bytes + 0xa0, 4) &&
                   safe_copy_bytes(&view.b8, bytes + 0xb8, 4) &&
                   safe_copy_bytes(&view.d0, bytes + 0xd0, 4);
+  std::uint32_t probe{};
+  view.plus8_readable =
+      view.plus8 == 0 || ((view.plus8 >> 47) == 0 &&
+                          safe_copy_bytes(&probe, reinterpret_cast<const void*>(view.plus8 + 0x24), 4));
   return view;
 }
 bool garbage(const OwnerView& v) {
   const bool canonical = v.array == 0 || (v.array >> 47) == 0;
   return !v.readable || !canonical || v.count > 100000 || v.a0 > 10000000 ||
-         v.b8 > 10000000 || v.d0 > 10000000;
+         v.b8 > 10000000 || v.d0 > 10000000 || !v.plus8_readable;
 }
 bool same(const OwnerView& a, const OwnerView& b) {
   return a.array == b.array && a.count == b.count && a.a0 == b.a0 && a.b8 == b.b8 &&
@@ -107,9 +114,13 @@ const char* kind_name(std::uint32_t kind) {
 }
 struct Record {
   std::uint64_t qpc{}, object{}, frame{}, id{}, array{};
+  // The owner's second to fifth arguments, on entries: looking for one that
+  // tells the two passes apart, since the capture queue's eye does not always
+  // (launch 22).
+  std::uint64_t args[4]{};
   std::uint32_t kind{}, thread{}, count{}, a0{}, b8{}, d0{};
   std::int32_t eye{-1};
-  std::uint32_t sequence{};
+  std::uint32_t sequence{}, queued{};
 };
 constexpr std::size_t kRing = 1 << 16;
 std::vector<Record> ring(kRing);
@@ -134,8 +145,18 @@ std::atomic<int> install_state{};
 std::atomic<std::uint64_t> install_detail{}, owners{}, updates{}, overlaps{}, changes{},
     garbage_seen{}, dumps{};
 std::atomic<bool> dumped{};
-std::atomic<std::uint64_t> stand_ins{}, unseen_skips{}, changed_skips{};
+std::atomic<std::uint64_t> stand_ins{}, unseen_skips{}, changed_skips{}, guard_skips{};
 bool stand_in_enabled = true;
+// The guard (darktidevr_particle_guard.flag "off" disables): an owner that
+// looks like freed memory is not drawn, whichever pass it is in. Launch 22's
+// second-eye pass was labelled as the stock pass (the capture queue held no
+// single eye) and drew a system destroyed twelve frames before, with counts of
+// 2.79 billion.
+bool guard_enabled = true;
+// One ring written a few minutes into play, crash or not, to find a pass
+// identifier in the owner's arguments.
+constexpr std::uint64_t kSampleAfterOwners = 3000000;
+std::atomic<bool> sampled{};
 // Off (darktidevr_particle_trace.flag) leaves the second-eye rule on without
 // the ring, the update hook or the crash handler.
 bool recording = true;
@@ -171,7 +192,8 @@ Stripe& stripe_of(const void* p) {
 std::atomic<std::uint64_t> last_frame{};
 std::atomic<int> last_eye{-1};
 
-void record(Kind kind, const void* object, const OwnerView* view = nullptr) {
+void record(Kind kind, const void* object, const OwnerView* view = nullptr,
+            const std::uint64_t* args = nullptr) {
   if (!recording) return;
   const auto index = next_record.fetch_add(1, std::memory_order_relaxed);
   auto& r = ring[index % kRing];
@@ -185,10 +207,12 @@ void record(Kind kind, const void* object, const OwnerView* view = nullptr) {
   if (kind == update_enter || kind == update_exit || !eye_reader) {
     r.frame = last_frame.load(std::memory_order_relaxed);
     r.eye = last_eye.load(std::memory_order_relaxed);
+    r.queued = 0;
   } else {
     const auto eye = eye_reader();
     r.frame = eye.present;
     r.eye = eye.eye;
+    r.queued = static_cast<std::uint32_t>(eye.queued);
     last_frame.store(eye.present, std::memory_order_relaxed);
     last_eye.store(eye.eye, std::memory_order_relaxed);
   }
@@ -198,14 +222,17 @@ void record(Kind kind, const void* object, const OwnerView* view = nullptr) {
   } else {
     r.id = r.array = 0; r.count = r.a0 = r.b8 = r.d0 = 0;
   }
+  for (int i = 0; i < 4; ++i) r.args[i] = args ? args[i] : 0;
 }
 
 // The ring, oldest first, and the counters. Once per process: the first
-// moment something goes wrong is the one worth keeping.
-void dump(const char* reason) {
-  if (dumped.exchange(true) || log_directory.empty()) return;
+// moment something goes wrong is the one worth keeping. The sample is the
+// one other, under its own name.
+void dump(const char* reason, bool sample = false) {
+  if ((sample ? sampled : dumped).exchange(true) || log_directory.empty()) return;
   dumps.fetch_add(1);
-  const auto path = log_directory + L"\\particle-trace-" + std::to_wstring(GetCurrentProcessId()) + L".log";
+  const auto path = log_directory + L"\\particle-trace-" + std::to_wstring(GetCurrentProcessId()) +
+                    (sample ? L"-sample.log" : L".log");
   const auto file = CreateFileW(path.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_ALWAYS,
                                 FILE_ATTRIBUTE_NORMAL, nullptr);
   if (file == INVALID_HANDLE_VALUE) return;
@@ -226,12 +253,14 @@ void dump(const char* reason) {
   for (auto i = first; i < last; ++i) {
     const auto& r = ring[i % kRing];
     std::snprintf(line, sizeof(line),
-                  "%u qpc=%llu %s thread=%lu object=%llx frame=%llu eye=%d id=%016llx array=%llx count=%u "
-                  "a0=%u b8=%u d0=%u\r\n",
+                  "%u qpc=%llu %s thread=%lu object=%llx frame=%llu eye=%d queued=%u id=%016llx array=%llx "
+                  "count=%u a0=%u b8=%u d0=%u args=%llx,%llx,%llx,%llx\r\n",
                   r.sequence, static_cast<unsigned long long>(r.qpc), kind_name(r.kind), r.thread,
                   static_cast<unsigned long long>(r.object), static_cast<unsigned long long>(r.frame), r.eye,
-                  static_cast<unsigned long long>(r.id), static_cast<unsigned long long>(r.array), r.count,
-                  r.a0, r.b8, r.d0);
+                  r.queued, static_cast<unsigned long long>(r.id), static_cast<unsigned long long>(r.array),
+                  r.count, r.a0, r.b8, r.d0, static_cast<unsigned long long>(r.args[0]),
+                  static_cast<unsigned long long>(r.args[1]), static_cast<unsigned long long>(r.args[2]),
+                  static_cast<unsigned long long>(r.args[3]));
     out += line;
   }
   DWORD written{};
@@ -245,9 +274,11 @@ std::uint64_t owner_hook(void* owner, std::uint64_t a2, std::uint64_t a3, std::u
                          std::uint64_t a9, std::uint64_t a10, std::uint64_t a11, std::uint64_t a12,
                          std::uint64_t a13, std::uint64_t a14, std::uint64_t a15, std::uint64_t a16,
                          std::uint64_t a17, std::uint64_t a18, std::uint64_t a19, std::uint64_t a20) {
-  owners.fetch_add(1, std::memory_order_relaxed);
+  const auto calls = owners.fetch_add(1, std::memory_order_relaxed) + 1;
   const auto before = read_owner(owner);
-  record(owner_enter, owner, &before);
+  const std::uint64_t args[4]{a2, a3, a4, a5};
+  record(owner_enter, owner, &before, args);
+  if (calls == kSampleAfterOwners) dump("sample", true);
   SecondEyeDraw verdict = SecondEyeDraw::draw;
   if (stand_in_enabled && eye_reader) {
     const auto eye = eye_reader();
@@ -293,6 +324,11 @@ std::uint64_t owner_hook(void* owner, std::uint64_t a2, std::uint64_t a3, std::u
     garbage_seen.fetch_add(1);
     record(owner_garbage, owner, &before);
     dump("owner_garbage_on_entry");
+    if (guard_enabled) {
+      // Skipped as above; never read again.
+      guard_skips.fetch_add(1, std::memory_order_relaxed);
+      return 0;
+    }
   }
   const auto result = original_owner(owner, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14,
                                      a15, a16, a17, a18, a19, a20);
@@ -396,6 +432,7 @@ bool install_particle_trace(HMODULE module, ParticleEyeReader eye) {
     CreateDirectoryW(log_directory.c_str(), nullptr);
   }
   stand_in_enabled = !switched_off(beside(module, L"darktidevr_particle_stand_in.flag"));
+  guard_enabled = !switched_off(beside(module, L"darktidevr_particle_guard.flag"));
   recording = !switched_off(beside(module, L"darktidevr_particle_trace.flag"));
   if (!recording && !stand_in_enabled) {
     install_state.store(2);
@@ -428,7 +465,7 @@ bool install_particle_trace(HMODULE module, ParticleEyeReader eye) {
   return true;
 }
 
-int particle_trace_state(std::uint64_t values[11]) {
+int particle_trace_state(std::uint64_t values[12]) {
   if (values) {
     values[0] = owners.load(std::memory_order_relaxed);
     values[1] = updates.load(std::memory_order_relaxed);
@@ -441,6 +478,7 @@ int particle_trace_state(std::uint64_t values[11]) {
     values[8] = stand_ins.load(std::memory_order_relaxed);
     values[9] = unseen_skips.load(std::memory_order_relaxed);
     values[10] = changed_skips.load(std::memory_order_relaxed);
+    values[11] = guard_skips.load(std::memory_order_relaxed);
   }
   return install_state.load();
 }
