@@ -707,6 +707,31 @@ is that allocation failing.
   that are created faster than destroyed) and a read-only watcher sampling
   system commit and per-process private bytes every 5 s.
 
+**Launch 13: no leak; the counts go wrong all at once.** Crashed after under
+three minutes of melee (`ParticleSystem #ID[784a7caf47f7e867]`, launch 10's).
+The watcher: Darktide's private bytes 10.4 GB at 14:20:48 and **75.7 GB five
+seconds later**, working set unchanged at 4.7 GB, then the crash. The census
+found nothing growing: Lua created a few hundred fire-and-forget effects
+(footstep dust, blood, impacts) in the whole session. So the render job reads
+garbage element counts and sizes gigabytes of scratch from them; the -1 array
+and the out-of-memory dialog are the same failure.
+
+- `#ID[fab3f9157509854c]` (launches 9 and 11) is MurmurHash64A of
+  `content/fx/particles/impacts/flesh/blood_splatter_weakspot_01`, the
+  weak-spot blood splatter. `784a7caf47f7e867` matches no name Lua created
+  (engine- or flow-spawned).
+- Build 25681127: `GPUVisualizer::render` is `0x5758b0` (the author's `563770`
+  on the earlier build, ENGINE-PARTICLE-STEREO-OWNERSHIP.md), and it still
+  starts `movzx r15d, byte ptr [rcx+0x514]`: the update-needed flag gates GPU
+  emit and simulate, and the render never clears it. The particle rendering
+  owner is `0x47de30` (the author's `46cfc0`), the crashing function.
+- Leading explanation: the second eye's `render_world` runs every GPU particle
+  system's emit and simulate a second time each frame, and the CPU's
+  read-back element counts are occasionally taken from the doubled work.
+  Candidate fix: a native hook on `0x5758b0` that lets the simulation through
+  once per particle update and renders the second eye from the same result.
+  It would also remove duplicated GPU work.
+
 **Frame rate at DLSS Performance:** about 60 pairs a second against 50-65 at
 Balanced, so the GPU resolution is not what limits it. This matches the
 author's finding on a 4090 (`LUA-FRAME-PROFILE-2026-09-16.md`): the engine
