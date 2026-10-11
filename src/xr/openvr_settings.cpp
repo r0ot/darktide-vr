@@ -190,4 +190,24 @@ bool OpenVrSettingsStore::set_bool(const char* section, const char* key,
   return error == 0;
 }
 
+// VRSettingsError_UnsetSettingHasNoDefault: what SteamVR answers for a
+// per-application key nobody has set (read 10 October for the viewer's own
+// framesToThrottle; a set key in another application's section reads 0).
+constexpr EVRSettingsError kUnsetSettingHasNoDefault = 5;
+
+std::optional<std::int32_t> OpenVrSettingsStore::get_int_or_unset(
+    const char* section, const char* key) {
+  EVRSettingsError error{};
+  const auto value = table_of(table_).GetInt32(section, key, &error);
+  if (error == kUnsetSettingHasNoDefault) return core::kSettingUnset;
+  if (error != 0) return std::nullopt;
+  return value;
+}
+
+bool OpenVrSettingsStore::remove_key(const char* section, const char* key) {
+  EVRSettingsError error{};
+  table_of(table_).RemoveKeyInSection(section, key, &error);
+  return error == 0;
+}
+
 }  // namespace darktidevr::xr

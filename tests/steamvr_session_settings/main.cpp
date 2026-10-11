@@ -51,6 +51,29 @@ class FakeStore final : public darktidevr::core::SteamVrSettingsStore {
     return true;
   }
 
+  // Per-application keys, as SteamVR answers for them: absent is unset
+  // rather than unreadable, and can be removed again.
+  bool app_keys{true};
+  std::optional<std::int32_t> get_int_or_unset(const char* section,
+                                               const char* key) override {
+    const auto found = ints.find(name(section, key));
+    if (found != ints.end()) return found->second;
+    if (!app_keys) return std::nullopt;
+    return darktidevr::core::kSettingUnset;
+  }
+  bool remove_key(const char* section, const char* key) override {
+    ++sets;
+    if (fail_set_key == key) return false;
+    ints.erase(name(section, key));
+    return true;
+  }
+  bool throttle_set() const { return ints.count(throttle_name()) != 0; }
+  std::int32_t throttle() const { return ints.at(throttle_name()); }
+  static std::string throttle_name() {
+    return name(darktidevr::core::kViewerAppSection,
+                darktidevr::core::kFramesToThrottleKey);
+  }
+
   std::int32_t rate() const { return ints.at("steamvr/preferredRefreshRate"); }
   bool smoothing() const { return bools.at("steamvr/motionSmoothing"); }
 
@@ -206,6 +229,51 @@ int main() {
       store.fail_set_key.clear();
       expect(restore_steamvr_session_settings(store, backup).ok && store.rate() == 144,
              "the retried restore failed");
+    }
+
+    // The viewer's fixed throttle (10 October): unset before, set for the
+    // session, and REMOVED afterwards -- writing the unset state back as a
+    // number would leave a fixed throttle behind for good.
+    {
+      auto store = user_store();
+      auto request = play_request();
+      request.frames_to_throttle = 0;
+      const auto applied = apply_steamvr_session_settings(store, request, backup);
+      expect(applied.ok, "throttle apply failed");
+      expect(store.throttle_set() && store.throttle() == 0, "throttle not set");
+      expect(applied.previous.frames_to_throttle == kSettingUnset,
+             "an absent throttle was not read as unset");
+      const auto parsed = parse_steamvr_backup(
+          "darktidevr_steamvr_backup=1\nframes_to_throttle=-1\n");
+      expect(parsed && parsed->frames_to_throttle == kSettingUnset, "unset throttle backup refused");
+      expect(!parse_steamvr_backup("darktidevr_steamvr_backup=1\nframes_to_throttle=11\n"),
+             "out-of-range throttle accepted");
+      expect(restore_steamvr_session_settings(store, backup).ok, "throttle restore failed");
+      expect(!store.throttle_set(), "restore left a fixed throttle behind");
+      expect(store.rate() == 144 && store.smoothing(), "throttle restore lost the others");
+    }
+    // A throttle the user had set themselves is put back as it was.
+    {
+      auto store = user_store();
+      store.ints[FakeStore::throttle_name()] = 2;
+      auto request = play_request();
+      request.frames_to_throttle = 0;
+      expect(apply_steamvr_session_settings(store, request, backup).ok, "apply failed");
+      expect(store.throttle() == 0, "throttle not set over the user's");
+      expect(restore_steamvr_session_settings(store, backup).ok, "restore failed");
+      expect(store.throttle_set() && store.throttle() == 2, "the user's throttle was not restored");
+    }
+    // A store that cannot tell absence from failure changes nothing.
+    {
+      auto store = user_store();
+      store.app_keys = false;
+      store.sets = 0;
+      auto request = play_request();
+      request.frames_to_throttle = 0;
+      const auto applied = apply_steamvr_session_settings(store, request, backup);
+      expect(!applied.ok && applied.detail == "read-frames-to-throttle-failed" &&
+                 store.sets == 0 && !std::filesystem::exists(backup),
+             "an unreadable throttle was changed");
     }
 
     std::filesystem::remove_all(root);

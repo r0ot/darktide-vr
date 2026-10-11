@@ -7411,7 +7411,9 @@ void usage() {
                "for this session and puts the user's back afterwards. "
                "Without it, darktidevr_motion_smoothing.flag supplies it.\n"
             << "--steamvr-settings apply|restore [--refresh-rate HZ] "
-               "[--motion-smoothing on|off] changes SteamVR's own settings and "
+               "[--motion-smoothing on|off] [--frames-to-throttle N] changes "
+               "SteamVR's own settings (N: the viewer's fixed throttle, from "
+               "darktidevr_frames_to_throttle.flag) and "
                "backs the user's up (apply), or puts them back (restore); the "
                "viewer runs it itself around a SteamVR session.\n"
             << "--refresh-rate HZ asks the runtime for that display refresh "
@@ -7514,6 +7516,22 @@ std::optional<bool> parse_on_off(std::wstring value) {
   return std::nullopt;
 }
 
+// A whole number of frames for SteamVR's fixed throttle, 0 to
+// kFramesToThrottleMaximum, surrounding whitespace allowed.
+std::optional<std::int32_t> parse_frames_to_throttle(const std::wstring& value) {
+  const auto first = value.find_first_not_of(L" \t\r\n");
+  if (first == std::wstring::npos) return std::nullopt;
+  const auto last = value.find_last_not_of(L" \t\r\n");
+  const auto digits = value.substr(first, last - first + 1);
+  if (digits.empty() || digits.size() > 2 ||
+      digits.find_first_not_of(L"0123456789") != std::wstring::npos) {
+    return std::nullopt;
+  }
+  const auto number = std::stoi(digits);
+  if (number > darktidevr::core::kFramesToThrottleMaximum) return std::nullopt;
+  return number;
+}
+
 // Beside the viewer logs the native module writes
 // (src/producer/viewer_process.cpp), outside the game folder, so a package
 // reinstall cannot delete the user's values while they are held.
@@ -7548,6 +7566,19 @@ void print_steamvr_session_result(
     if (previous.motion_smoothing) std::cout << (*previous.motion_smoothing ? 1 : 0);
     if (previous.motion_smoothing && applied.motion_smoothing) std::cout << "->";
     if (applied.motion_smoothing) std::cout << (*applied.motion_smoothing ? 1 : 0);
+  }
+  if (previous.frames_to_throttle || applied.frames_to_throttle) {
+    const auto show = [](std::int32_t value) {
+      if (value == darktidevr::core::kSettingUnset) {
+        std::cout << "auto";
+      } else {
+        std::cout << value;
+      }
+    };
+    std::cout << " frames_to_throttle=";
+    if (previous.frames_to_throttle) show(*previous.frames_to_throttle);
+    if (previous.frames_to_throttle && applied.frames_to_throttle) std::cout << "->";
+    if (applied.frames_to_throttle) show(*applied.frames_to_throttle);
   }
   std::cout << '\n';
 }
@@ -7632,6 +7663,11 @@ int run_steamvr_settings_mode(int argc, wchar_t** argv) {
         request.motion_smoothing = parse_on_off(argv[++index]);
         if (!request.motion_smoothing) {
           throw std::invalid_argument("--motion-smoothing expects on or off");
+        }
+      } else if (argument == L"--frames-to-throttle" && index + 1 < argc) {
+        request.frames_to_throttle = parse_frames_to_throttle(argv[++index]);
+        if (!request.frames_to_throttle) {
+          throw std::invalid_argument("--frames-to-throttle expects 0 to 10");
         }
       } else {
         throw std::invalid_argument("Unknown or incomplete --steamvr-settings argument");
@@ -7740,6 +7776,10 @@ class SteamVrSessionSettings {
     if (request.motion_smoothing) {
       arguments += *request.motion_smoothing ? L" --motion-smoothing on"
                                              : L" --motion-smoothing off";
+    }
+    if (request.frames_to_throttle) {
+      arguments += L" --frames-to-throttle " +
+                   std::to_wstring(*request.frames_to_throttle);
     }
     // Armed even when apply fails part-way: restoring with no backup is a
     // no-op, and with one it is exactly what is wanted.
@@ -8212,6 +8252,15 @@ int wmain(int argc, wchar_t** argv) {
                   << '\n';
       }
     }
+    // SteamVR's throttling of the viewer (SteamVrSessionValues): a whole
+    // number of frames, 0 for none; absent leaves SteamVR's automatic one.
+    std::optional<std::int32_t> frames_to_throttle_request;
+    if (const auto text = read_mod_setting_flag(L"darktidevr_frames_to_throttle.flag")) {
+      frames_to_throttle_request = parse_frames_to_throttle(*text);
+      std::cout << "openxr.frames_to_throttle_flag="
+                << (frames_to_throttle_request ? "applied" : "ignored-unparsable")
+                << '\n';
+    }
     if (!hide_dashboard_request) {
       if (const auto text = read_mod_setting_flag(L"darktidevr_hide_dashboard.flag")) {
         hide_dashboard_request = parse_on_off(*text);
@@ -8229,6 +8278,7 @@ int wmain(int argc, wchar_t** argv) {
           static_cast<std::int32_t>(std::lround(*refresh_rate_request));
     }
     steamvr_request.motion_smoothing = motion_smoothing_request;
+    steamvr_request.frames_to_throttle = frames_to_throttle_request;
     const bool steamvr_runtime =
         !no_openxr && darktidevr::xr::runtime_manifest_is_steamvr(
                           darktidevr::xr::active_openxr_runtime_manifest());

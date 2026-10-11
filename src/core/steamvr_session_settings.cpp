@@ -11,6 +11,9 @@ namespace {
 constexpr const char* kHeader = "darktidevr_steamvr_backup=1";
 
 bool refresh_rate_in_range(long value) { return value >= 30 && value <= 1000; }
+bool frames_to_throttle_in_range(long value) {
+  return value == kSettingUnset || (value >= 0 && value <= kFramesToThrottleMaximum);
+}
 
 std::optional<std::string> read_text(const std::filesystem::path& path) {
   std::error_code error;
@@ -69,6 +72,14 @@ bool set_values(SteamVrSettingsStore& store, const SteamVrSessionValues& values,
     }
     if (set) set->motion_smoothing = values.motion_smoothing;
   }
+  if (values.frames_to_throttle) {
+    const bool done = *values.frames_to_throttle == kSettingUnset
+        ? store.remove_key(kViewerAppSection, kFramesToThrottleKey)
+        : store.set_int(kViewerAppSection, kFramesToThrottleKey,
+                        *values.frames_to_throttle);
+    if (!done) return false;
+    if (set) set->frames_to_throttle = values.frames_to_throttle;
+  }
   return true;
 }
 
@@ -82,6 +93,9 @@ std::string serialize_steamvr_backup(const SteamVrSessionValues& values) {
   if (values.motion_smoothing) {
     text += std::string("motion_smoothing=") +
             (*values.motion_smoothing ? "1" : "0") + "\n";
+  }
+  if (values.frames_to_throttle) {
+    text += "frames_to_throttle=" + std::to_string(*values.frames_to_throttle) + "\n";
   }
   return text;
 }
@@ -112,6 +126,8 @@ std::optional<SteamVrSessionValues> parse_steamvr_backup(
       values.refresh_rate_hz = static_cast<std::int32_t>(number);
     } else if (key == "motion_smoothing" && (number == 0 || number == 1)) {
       values.motion_smoothing = number == 1;
+    } else if (key == "frames_to_throttle" && frames_to_throttle_in_range(number)) {
+      values.frames_to_throttle = static_cast<std::int32_t>(number);
     } else {
       return std::nullopt;
     }
@@ -193,6 +209,19 @@ SteamVrSessionResult apply_steamvr_session_settings(
     if (*current != *request.motion_smoothing) {
       backup.motion_smoothing = current;
       changes.motion_smoothing = request.motion_smoothing;
+    }
+  }
+  if (request.frames_to_throttle) {
+    const auto current =
+        store.get_int_or_unset(kViewerAppSection, kFramesToThrottleKey);
+    if (!current) {
+      result.detail = "read-frames-to-throttle-failed";
+      return result;
+    }
+    result.previous.frames_to_throttle = current;
+    if (*current != *request.frames_to_throttle) {
+      backup.frames_to_throttle = current;
+      changes.frames_to_throttle = request.frames_to_throttle;
     }
   }
   if (changes.empty()) {

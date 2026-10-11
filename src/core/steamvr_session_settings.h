@@ -18,13 +18,29 @@ namespace darktidevr::core {
 struct SteamVrSessionValues {
   std::optional<std::int32_t> refresh_rate_hz;   // steamvr/preferredRefreshRate
   std::optional<bool> motion_smoothing;          // steamvr/motionSmoothing
+  // The viewer's own per-application framesToThrottle (10 October, Steam
+  // Frame): SteamVR's automatic throttling halves an application that keeps
+  // missing frames, and the viewer -- which submits one frame per game pair
+  // -- was held at 45 for whole missions, with the game behind it. A fixed
+  // throttle of 0 keeps it at the display rate and lets the runtime reproject
+  // the misses instead. kSettingUnset (a backup only): the key was absent and
+  // a restore removes it, leaving SteamVR's automatic behaviour.
+  std::optional<std::int32_t> frames_to_throttle;
 
-  bool empty() const { return !refresh_rate_hz && !motion_smoothing; }
+  bool empty() const {
+    return !refresh_rate_hz && !motion_smoothing && !frames_to_throttle;
+  }
 };
 
 inline constexpr const char* kSteamVrSection = "steamvr";
 inline constexpr const char* kSteamVrRefreshRateKey = "preferredRefreshRate";
 inline constexpr const char* kSteamVrMotionSmoothingKey = "motionSmoothing";
+// SteamVR's application key for the viewer's OpenXR session (its
+// XrApplicationInfo name), as vrserver logs it.
+inline constexpr const char* kViewerAppSection = "system.generated.openxr.darktidevr";
+inline constexpr const char* kFramesToThrottleKey = "framesToThrottle";
+inline constexpr std::int32_t kSettingUnset = -1;
+inline constexpr std::int32_t kFramesToThrottleMaximum = 10;
 
 // SteamVR's settings, or a fake of them in a test.
 class SteamVrSettingsStore {
@@ -37,6 +53,16 @@ class SteamVrSettingsStore {
   virtual std::optional<bool> get_bool(const char* section,
                                        const char* key) = 0;
   virtual bool set_bool(const char* section, const char* key, bool value) = 0;
+  // A per-application key, which is normally absent: its value,
+  // kSettingUnset when SteamVR holds none and has no default, nothing when it
+  // cannot be read. A store that cannot tell absence apart says nothing.
+  virtual std::optional<std::int32_t> get_int_or_unset(const char* section,
+                                                       const char* key) {
+    return get_int(section, key);
+  }
+  virtual bool remove_key(const char* /*section*/, const char* /*key*/) {
+    return false;
+  }
 };
 
 std::string serialize_steamvr_backup(const SteamVrSessionValues& values);

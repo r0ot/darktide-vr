@@ -48,6 +48,9 @@ class OpenVrSettingsStore final : public core::SteamVrSettingsStore {
                std::int32_t value) override;
   std::optional<bool> get_bool(const char* section, const char* key) override;
   bool set_bool(const char* section, const char* key, bool value) override;
+  std::optional<std::int32_t> get_int_or_unset(const char* section,
+                                               const char* key) override;
+  bool remove_key(const char* section, const char* key) override;
 
  private:
   OpenVrSettingsStore(void* module, const void* table);
