@@ -5699,6 +5699,13 @@ local function update_stereo(manager)
             effective_half_ipd, presentation.hud_panel.distance,
             presentation.hud_panel.height, 2 * presentation.hud_panel.distance)
     end
+    -- A recentre puts the HUD dead ahead rather than within its follow's
+    -- 4-degree dead zone (HudPanel.snap).
+    local recenter_generation = controller_observation.body_anchor_recenter_generation
+    if recenter_generation ~= presentation.hud_recenter_generation then
+        presentation.hud_recenter_generation = recenter_generation
+        presentation.hud_panel.snap()
+    end
     presentation.frame_profile.section("render.hud_panel", presentation.hud_panel.draw,
         world, clean_position, clean_rotation, hud_width, hud_center)
     -- Both of these show a whole atlas of cells on their quads, and both were
@@ -9305,27 +9312,28 @@ function presentation.zoom_corrected_aim_point(world_point)
         local io_api = Mods and Mods.lua and Mods.lua.io
         local file = io_api and io_api.open(
             "./../mods/darktidevr/darktidevr_zoom_aim_correction.flag", "r")
+        local text = file and file:read("*all") or ""
         if file then file:close() end
-        -- Absent means OFF: the flag arms the correction for a comparison
-        -- against a viewer that does not carry the zoom.
-        presentation.zoom_aim_correction_flag = file ~= nil
+        -- ON unless the flag says "off" (10 October). The reticle is a quad
+        -- layer the runtime composites at its true direction; the submitted
+        -- zoom changes only how the WORLD's image is spread, so without this
+        -- the mark and the surface it marks part by (m-1) of the off-axis
+        -- angle. With the field of view held away from 100% and keyboard and
+        -- mouse aim free of the head, that is a reticle that slides as the
+        -- head turns (user, 10 October) -- and the "1.2x to 1.7x too far,
+        -- only in the sights" of 19 September is its range half.
+        presentation.zoom_aim_correction_flag = not text:lower():match("^%s*off%s*$")
     end
-    -- OFF by default, and the reason is that its premise stopped being true.
-    -- This correction exists because "the viewer submits the runtime's own
-    -- field of view unchanged -- that is what makes it a zoom". It does not
-    -- any more: the magnification reaches the viewer and it submits the
-    -- zoomed frustum, so the reticle is already composited through the same
-    -- projection the world was rendered in and needs no moving. Left on it
-    -- would push the point outward by about (m-1) of its off-axis angle and
-    -- shrink its range on top -- roughly 1.5 degrees of reticle error at
-    -- m=1.15 and ten degrees off centre, in the very feature being tested
-    -- (review, 19 September).
-    --
-    -- The flag arms it again for an A/B rather than deleting it, because the
-    -- arithmetic is still right for a viewer that does not carry the zoom.
+    -- Off from 19 September to 10 October on the premise that a submitted
+    -- zoomed frustum composites the reticle "through the same projection the
+    -- world was rendered in". It does only for a reticle drawn INTO the eye
+    -- images (DTVR_XR_RETICLE_IN_EYES, off by default); the quad layer is
+    -- placed by the runtime at the point's true direction.
     if presentation.zoom_aim_correction_flag ~= true then return world_point end
     local magnification = tonumber(presentation.ads_zoom_applied)
-    if not world_point or not magnification or magnification <= 1.0001 or
+    -- Below 1 too: the field of view's widening, the same correction inward.
+    if not world_point or not magnification or magnification < 0.75 or
+            magnification > 4 or math.abs(magnification - 1) <= 0.0001 or
             not controller_observation.head_aim_qw then
         return world_point
     end

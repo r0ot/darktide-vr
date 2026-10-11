@@ -38,16 +38,19 @@ int main() {
     // the NSDMI of 1, which must read as "no zoom" rather than as invalid.
     expect(sample.zoom_magnification == 1.0F,
            "An unset magnification did not default to no zoom");
-    for (const float accepted : {1.0F, 1.0001F, 1.05F, 1.30F, 4.0F}) {
+    // Below 1 is the field-of-view setting widening the view (10 October):
+    // refusing it refused the whole aim state, which hid the reticle and kept
+    // the viewer submitting an unwidened frustum for a widened image.
+    for (const float accepted : {0.75F, 0.8F, 0.9999F, 1.0F, 1.0001F, 1.05F, 1.30F, 4.0F}) {
       auto zoomed = sample;
       zoomed.zoom_magnification = accepted;
       expect(valid_gameplay_aim_state(zoomed),
              "A magnification inside the range was rejected");
     }
-    // Below 1 would WIDEN the submitted frustum, which is the same fault with
-    // its sign flipped; above 4 is past what the Lua will ever ask for, and a
-    // value that large would be unusable rather than merely wrong.
-    for (const float refused : {0.0F, 0.5F, 0.9999F, 4.0001F, 100.0F, -1.0F,
+    // Below 0.75 is past what the field of view asks for; above 4 is past
+    // what the Lua will ever ask for, and a value that large would be
+    // unusable rather than merely wrong.
+    for (const float refused : {0.0F, 0.5F, 0.7499F, 4.0001F, 100.0F, -1.0F,
                                 std::numeric_limits<float>::infinity(),
                                 -std::numeric_limits<float>::infinity(),
                                 std::numeric_limits<float>::quiet_NaN()}) {

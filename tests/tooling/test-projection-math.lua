@@ -182,5 +182,15 @@ assert(projection.zoomed_range(12.0, 0 / 0) == 12.0, 'a nan magnification')
 assert(projection.zoomed_range(0 / 0, 1.5) ~= projection.zoomed_range(0 / 0, 1.5) or true)
 assert(projection.zoomed_range(-1.0, 1.5) == -1.0, 'a range behind the eye')
 assert(projection.zoomed_range(nil, 1.5) == nil and projection.zoomed_range(12.0, nil) == 12.0)
+-- Widening (the field-of-view setting, 10 October): the same correction
+-- inward. The world shows a point at m times its tangent and at D/m, so the
+-- reticle moves toward the centre and further away.
+local wx, wy, wz = projection.magnified_target(0.3, -0.2, -10, 0.8)
+assert(math.abs(math.sqrt(wx * wx + wy * wy + wz * wz) - math.sqrt(0.09 + 0.04 + 100)) < 1e-9,
+    'widening keeps the length')
+assert(math.abs(wx / -wz - 0.8 * 0.03) < 1e-9 and math.abs(wy / -wz - 0.8 * -0.02) < 1e-9,
+    'widening scales the tangent by the magnification')
+assert(math.abs(projection.zoomed_range(12.0, 0.8) - 15.0) < 1e-9, 'widening pushes the range out')
+assert(projection.zoomed_range(12.0, 0.7) == 12.0, 'below the floor')
 
 print("projection_math=pass recentered visibility panel lod zoom magnified_target zoomed_range")

@@ -1322,6 +1322,15 @@ function HudPanel.observe_render(world)
     end
 end
 
+-- Drops the lagging follow pose so the next draw faces the head exactly. The
+-- follow holds its heading until the head turns 4 degrees from it, so a
+-- recentre (Z) could leave the panel up to that far to one side (user,
+-- 10 October: "the whole HUD feels like it's rotated ever so slightly to the
+-- left"); a recentre is a request for dead ahead.
+function HudPanel.snap()
+    state.follow_pose = nil
+end
+
 function HudPanel.draw(world, position, rotation, overlap_width, overlap_center)
     if not state.enabled then
         return

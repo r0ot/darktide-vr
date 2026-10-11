@@ -138,7 +138,9 @@ end
 -- surface. Pure.
 function Projection.magnified_target(x, y, z, magnification)
     local m = tonumber(magnification)
-    if not m or m ~= m or m <= 1.0001 or m > 4 then return x, y, z end
+    if not m or m ~= m or m < 0.75 or m > 4 or math.abs(m - 1) <= 0.0001 then
+        return x, y, z
+    end
     local ax, ay, az = tonumber(x), tonumber(y), tonumber(z)
     if not ax or not ay or ax ~= ax or ay ~= ay then return x, y, z end
     if not az or az ~= az then return x, y, z end
@@ -180,7 +182,7 @@ end
 function Projection.zoomed_range(range, magnification)
     local r, m = tonumber(range), tonumber(magnification)
     if not r or not m or r ~= r or m ~= m then return range end
-    if m <= 1.0001 or m > 4 or not (r > 0) then return range end
+    if m < 0.75 or m > 4 or math.abs(m - 1) <= 0.0001 or not (r > 0) then return range end
     return r / m
 end
 

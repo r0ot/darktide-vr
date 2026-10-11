@@ -38,7 +38,7 @@ bool valid_gameplay_aim_state(const SharedGameplayAimState& state) {
           static_cast<std::uint64_t>(std::numeric_limits<LONG64>::max()) ||
       !std::isfinite(state.distance_metres) ||
       !std::isfinite(state.zoom_magnification) ||
-      state.zoom_magnification < 1.0F || state.zoom_magnification > 4.0F) {
+      state.zoom_magnification < 0.75F || state.zoom_magnification > 4.0F) {
     return false;
   }
   if (!state.active) {
