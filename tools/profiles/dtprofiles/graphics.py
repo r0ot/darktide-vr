@@ -29,6 +29,11 @@ GRAPHICS = (
     "render_settings", "screen_mode", "screen_resolution", "texture_settings", "vsync",
 )
 MODS = "mods_settings"
+# Mod settings that belong to a slot as the graphics do, because they are
+# made for one display: a HUD layout arranged for a monitor is wrong in the
+# headset and the other way round (user, 10 October: a separate VR layout for
+# Custom HUD). A slot without one leaves the mod at its defaults.
+SLOT_MODS = ("custom_hud",)
 
 _TEXTURES = [f"content/texture_categories/{name}" for name in (
     "character_bc", "character_bca", "character_bcm", "character_hm", "character_mask",
@@ -259,8 +264,9 @@ def _show(value) -> str:
 
 def merge(current: Table, slot: Table) -> Table:
     """The file in use with `slot`'s graphics: every graphics key as the
-    slot has it (absent where the slot has none), everything else as it is
-    now, and the slot's mod settings blocks the file in use does not have."""
+    slot has it (absent where the slot has none), the SLOT_MODS settings
+    likewise, everything else as it is now, and the slot's other mod
+    settings blocks the file in use does not have."""
     result = current.copy()
     for key in GRAPHICS:
         if key in slot:
@@ -268,6 +274,15 @@ def merge(current: Table, slot: Table) -> Table:
         elif key in result:
             del result[key]
     ours, theirs = result.get(MODS), slot.get(MODS)
+    for name in SLOT_MODS:
+        block = theirs.get(name) if isinstance(theirs, Table) else None
+        if isinstance(block, Table):
+            if not isinstance(ours, Table):
+                ours = Table()
+                result.put(MODS, ours)
+            ours.put(name, sjson.deep_copy(block))
+        elif isinstance(ours, Table) and name in ours:
+            del ours[name]
     if isinstance(ours, Table) and isinstance(theirs, Table):
         for name, block in theirs.items():
             if name not in ours and isinstance(block, Table):

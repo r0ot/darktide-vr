@@ -64,6 +64,9 @@ DEFAULT_VR_FLAGS = {
     "darktidevr_eye_extent.flag": "2160x2160",
     # The game's frame rate low in the view (darktidevr_frame_rate_display.lua).
     "darktidevr_frame_rate_display.flag": "on",
+    # SteamVR's fixed throttle for the viewer: 0 stops the automatic halving
+    # that held whole missions at 45 (src/core/steamvr_session_settings.h).
+    "darktidevr_frames_to_throttle.flag": "0",
 }
 
 

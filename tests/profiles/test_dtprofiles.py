@@ -582,6 +582,18 @@ class GraphicsTest(unittest.TestCase):
         self.assertEqual(back["mods_settings"]["Alpha"]["colour"].raw, '"blue"')
         self.assertEqual(sjson.parse(sjson.dumps(back)), back)
 
+    def test_custom_hud_layout_belongs_to_the_slot(self):
+        flat = sjson.parse(SETTINGS_2D)
+        flat["mods_settings"].put("custom_hud", sjson.Table(opacity=sjson.scalar(0.7)))
+        vr = sjson.parse(SETTINGS_2D)                         # no layout of its own yet
+        merged = graphics.merge(flat, vr)
+        self.assertNotIn("custom_hud", merged["mods_settings"])  # VR starts at defaults
+        merged["mods_settings"].put("custom_hud", sjson.Table(opacity=sjson.scalar(0.4)))
+        back = graphics.merge(merged, flat)                   # to 2D: its own layout
+        self.assertEqual(back["mods_settings"]["custom_hud"]["opacity"].raw, "0.7")
+        again = graphics.merge(back, merged)                  # to VR: the VR layout
+        self.assertEqual(again["mods_settings"]["custom_hud"]["opacity"].raw, "0.4")
+
 
 class GraphicsProfilesTest(unittest.TestCase):
     """The switch with settings files the game wrote: the graphics follow the
